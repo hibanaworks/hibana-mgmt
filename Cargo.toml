@@ -1,0 +1,18 @@
+[package]
+name = "hibana-mgmt"
+version = "0.1.0"
+edition = "2024"
+description = "Management prefixes and payload owners for hibana"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hibanaworks/hibana-mgmt"
+homepage = "https://github.com/hibanaworks/hibana-mgmt"
+documentation = "https://docs.rs/hibana-mgmt"
+readme = "README.md"
+
+[features]
+default = []
+std = ["hibana/std"]
+
+[dependencies]
+hibana = { version = "0.1.0", git = "https://github.com/hibanaworks/hibana", branch = "main", default-features = false }
+hibana-epf = { version = "0.1.0", git = "https://github.com/hibanaworks/hibana-epf", branch = "main", default-features = false }
