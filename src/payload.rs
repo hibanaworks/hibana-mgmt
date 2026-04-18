@@ -1,6 +1,6 @@
 use hibana::{
     substrate::policy::PolicySlot,
-    substrate::wire::{CodecError, WireDecode, WireEncode},
+    substrate::wire::{CodecError, Payload, WireEncode, WirePayload},
 };
 
 use hibana_epf::{host::HostError, loader::LoaderError, verifier::VerifyError};
@@ -116,8 +116,11 @@ impl WireEncode for MgmtError {
     }
 }
 
-impl<'a> WireDecode<'a> for MgmtError {
-    fn decode_from(input: &'a [u8]) -> Result<Self, CodecError> {
+impl WirePayload for MgmtError {
+    type Decoded<'a> = Self;
+
+    fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
+        let input = input.as_bytes();
         if input.is_empty() {
             return Err(CodecError::Truncated);
         }
@@ -300,8 +303,11 @@ impl WireEncode for SubscribeReq {
     }
 }
 
-impl<'a> WireDecode<'a> for SubscribeReq {
-    fn decode_from(input: &'a [u8]) -> Result<Self, CodecError> {
+impl WirePayload for SubscribeReq {
+    type Decoded<'a> = Self;
+
+    fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
+        let input = input.as_bytes();
         if input.len() < 2 {
             return Err(CodecError::Truncated);
         }
@@ -327,8 +333,11 @@ impl WireEncode for StatsResp {
     }
 }
 
-impl<'a> WireDecode<'a> for StatsResp {
-    fn decode_from(input: &'a [u8]) -> Result<Self, CodecError> {
+impl WirePayload for StatsResp {
+    type Decoded<'a> = Self;
+
+    fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
+        let input = input.as_bytes();
         if input.len() < 16 {
             return Err(CodecError::Truncated);
         }
@@ -365,8 +374,11 @@ impl WireEncode for PolicyStats {
     }
 }
 
-impl<'a> WireDecode<'a> for PolicyStats {
-    fn decode_from(input: &'a [u8]) -> Result<Self, CodecError> {
+impl WirePayload for PolicyStats {
+    type Decoded<'a> = Self;
+
+    fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
+        let input = input.as_bytes();
         if input.len() < 38 {
             return Err(CodecError::Truncated);
         }
@@ -409,14 +421,17 @@ impl WireEncode for TransitionReport {
     }
 }
 
-impl<'a> WireDecode<'a> for TransitionReport {
-    fn decode_from(input: &'a [u8]) -> Result<Self, CodecError> {
+impl WirePayload for TransitionReport {
+    type Decoded<'a> = Self;
+
+    fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
+        let input = input.as_bytes();
         if input.len() < 42 {
             return Err(CodecError::Truncated);
         }
         Ok(TransitionReport {
             version: u32::from_be_bytes([input[0], input[1], input[2], input[3]]),
-            policy_stats: PolicyStats::decode_from(&input[4..42])?,
+            policy_stats: PolicyStats::decode_payload(Payload::new(&input[4..42]))?,
         })
     }
 }
@@ -435,8 +450,11 @@ impl WireEncode for LoadReport {
     }
 }
 
-impl<'a> WireDecode<'a> for LoadReport {
-    fn decode_from(input: &'a [u8]) -> Result<Self, CodecError> {
+impl WirePayload for LoadReport {
+    type Decoded<'a> = Self;
+
+    fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
+        let input = input.as_bytes();
         if input.len() < 4 {
             return Err(CodecError::Truncated);
         }
@@ -462,12 +480,15 @@ impl WireEncode for StatsReply {
     }
 }
 
-impl<'a> WireDecode<'a> for StatsReply {
-    fn decode_from(input: &'a [u8]) -> Result<Self, CodecError> {
+impl WirePayload for StatsReply {
+    type Decoded<'a> = Self;
+
+    fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
+        let input = input.as_bytes();
         if input.len() < 21 {
             return Err(CodecError::Truncated);
         }
-        let stats = StatsResp::decode_from(&input[..16])?;
+        let stats = StatsResp::decode_payload(Payload::new(&input[..16]))?;
         let staged_version = if input[16] == 0 {
             None
         } else {
@@ -500,8 +521,11 @@ impl WireEncode for LoadBegin {
     }
 }
 
-impl<'a> WireDecode<'a> for LoadBegin {
-    fn decode_from(input: &'a [u8]) -> Result<Self, CodecError> {
+impl WirePayload for LoadBegin {
+    type Decoded<'a> = Self;
+
+    fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
+        let input = input.as_bytes();
         if input.len() < 13 {
             return Err(CodecError::Truncated);
         }
@@ -541,8 +565,11 @@ impl WireEncode for LoadChunk {
     }
 }
 
-impl<'a> WireDecode<'a> for LoadChunk {
-    fn decode_from(input: &'a [u8]) -> Result<Self, CodecError> {
+impl WirePayload for LoadChunk {
+    type Decoded<'a> = Self;
+
+    fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
+        let input = input.as_bytes();
         if input.len() < 6 {
             return Err(CodecError::Truncated);
         }
@@ -575,8 +602,11 @@ impl WireEncode for SlotRequest {
     }
 }
 
-impl<'a> WireDecode<'a> for SlotRequest {
-    fn decode_from(input: &'a [u8]) -> Result<Self, CodecError> {
+impl WirePayload for SlotRequest {
+    type Decoded<'a> = Self;
+
+    fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
+        let input = input.as_bytes();
         if input.is_empty() {
             return Err(CodecError::Truncated);
         }

@@ -8,7 +8,7 @@ use hibana::{
         cap::GenericCapToken,
         cap::advanced::{LoopBreakKind, LoopContinueKind},
         tap::TapEvent,
-        wire::{CodecError, WireDecode, WireEncode},
+        wire::{CodecError, Payload, WireEncode, WirePayload},
     },
 };
 
@@ -108,8 +108,11 @@ impl WireEncode for TapBatch {
     }
 }
 
-impl<'a> WireDecode<'a> for TapBatch {
-    fn decode_from(input: &'a [u8]) -> Result<Self, CodecError> {
+impl WirePayload for TapBatch {
+    type Decoded<'a> = Self;
+
+    fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
+        let input = input.as_bytes();
         if input.len() < TAP_BATCH_HEADER_LEN {
             return Err(CodecError::Truncated);
         }
@@ -130,7 +133,7 @@ impl<'a> WireDecode<'a> for TapBatch {
 
         let mut offset = TAP_BATCH_HEADER_LEN;
         for _ in 0..count {
-            let event = TapEvent::decode_from(&input[offset..])?;
+            let event = TapEvent::decode_payload(Payload::new(&input[offset..]))?;
             batch.push(event);
             offset += TAP_EVENT_WIRE_LEN;
         }

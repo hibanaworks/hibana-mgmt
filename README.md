@@ -10,7 +10,6 @@ It exports:
 - management request / reply payload owners
 
 The crate depends on the public `hibana` and `hibana-epf` GitHub repositories
-at immutable revisions rather than filesystem path dependencies. Until crates.io
-releases exist for the split repos, downstreams should use the same immutable
-GitHub revisions or a local Cargo patch override instead of restoring path-based
-manifests.
+at immutable revisions rather than filesystem path dependencies. Downstreams
+should consume the same immutable GitHub revision boundary or coordinated
+release tags, not restore path-based manifests.
