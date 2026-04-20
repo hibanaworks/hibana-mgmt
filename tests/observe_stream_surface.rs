@@ -1,39 +1,53 @@
 #![cfg(feature = "std")]
 
-use hibana::{
-    g,
-    g::advanced::{
-        project,
-        steps::{SendStep, SeqSteps, StepCons, StepNil},
-    },
-    substrate::cap::advanced::MintConfig,
-};
-use hibana_mgmt::{ROLE_CLUSTER, ROLE_CONTROLLER, SubscribeReq, observe_stream};
+use std::fs;
+use std::path::PathBuf;
 
-type AppSteps =
-    StepCons<SendStep<g::Role<ROLE_CONTROLLER>, g::Role<ROLE_CLUSTER>, g::Msg<121, ()>>, StepNil>;
-type ProgramSteps = SeqSteps<observe_stream::ProgramSteps, AppSteps>;
+use hibana::substrate::tap::TapEvent;
+use hibana_mgmt::SubscribeReq;
 
-const APP: g::Program<AppSteps> =
-    g::send::<g::Role<ROLE_CONTROLLER>, g::Role<ROLE_CLUSTER>, g::Msg<121, ()>, 0>();
-const PROGRAM: g::Program<ProgramSteps> = g::seq(observe_stream::PROGRAM, APP);
-
-#[test]
-fn observe_stream_program_projects_from_standalone_repo() {
-    let prefix = observe_stream::PROGRAM;
-    let _controller: hibana::g::advanced::RoleProgram<'_, ROLE_CONTROLLER, MintConfig> =
-        project(&prefix);
-    let _cluster: hibana::g::advanced::RoleProgram<'_, ROLE_CLUSTER, MintConfig> = project(&prefix);
-
-    let _subscribe = SubscribeReq::default();
-    let _tap = hibana::substrate::tap::TapEvent::default();
+fn read(path: &str) -> String {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let full = root.join(path);
+    fs::read_to_string(&full)
+        .unwrap_or_else(|err| panic!("read {} failed: {}", full.display(), err))
 }
 
 #[test]
-fn observe_stream_program_stays_composable_as_prefix() {
-    let program = PROGRAM;
-    let _controller: hibana::g::advanced::RoleProgram<'_, ROLE_CONTROLLER, MintConfig> =
-        project(&program);
-    let _cluster: hibana::g::advanced::RoleProgram<'_, ROLE_CLUSTER, MintConfig> =
-        project(&program);
+fn observe_stream_surface_uses_attach_helpers_not_raw_program_exports() {
+    let src = read("src/observe_stream.rs");
+
+    assert!(
+        src.contains("pub fn attach_controller") && src.contains("pub fn attach_cluster"),
+        "observe_stream surface must expose attach helpers"
+    );
+
+    for forbidden in [
+        "pub const PROGRAM",
+        "pub const PREFIX",
+        "g::advanced::steps",
+        "const APP: g::Program<_>",
+        "static APP: g::Program<_>",
+        "const PROGRAM: g::Program<_>",
+        "static PROGRAM: g::Program<_>",
+        "project(&PROGRAM)",
+        "project::<",
+    ] {
+        assert!(
+            !src.contains(forbidden),
+            "observe_stream surface must not export raw choreography values: {forbidden}"
+        );
+    }
+
+    let kinds = read("src/control_kinds.rs");
+    assert!(
+        kinds.contains("pub struct MgmtRouteKind"),
+        "management route owner must stay in hibana-mgmt"
+    );
+}
+
+#[test]
+fn observe_stream_payload_surface_stays_available() {
+    let _subscribe = SubscribeReq::default();
+    let _tap = TapEvent::default();
 }

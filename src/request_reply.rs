@@ -1,21 +1,25 @@
-use super::payload::{LoadBegin, LoadChunk, LoadReport, MgmtError, SlotRequest, StatsReply};
 use hibana::{
-    g::advanced::{
-        CanonicalControl, ExternalControl,
-        steps::{self, PolicySteps, RouteSteps, SeqSteps, StepCons, StepNil},
-    },
-    g::{self, Program},
+    g::advanced::{CanonicalControl, ExternalControl, RoleProgram, project},
+    g::{self},
     substrate::{
+        AttachError, RendezvousId, SessionId, SessionKit, Transport,
+        binding::NoBinding,
         cap::GenericCapToken,
-        cap::advanced::{
-            LoadBeginKind, LoadCommitKind, LoopBreakKind, LoopContinueKind, MgmtRouteActivateKind,
-            MgmtRouteCommandFamilyKind, MgmtRouteCommandTailKind, MgmtRouteLoadAndActivateKind,
-            MgmtRouteLoadFamilyKind, MgmtRouteLoadKind, MgmtRouteReplyActivatedKind,
-            MgmtRouteReplyErrorKind, MgmtRouteReplyLoadedKind, MgmtRouteReplyRevertedKind,
-            MgmtRouteReplyStatsKind, MgmtRouteReplySuccessFamilyKind,
-            MgmtRouteReplySuccessFinalKind, MgmtRouteReplySuccessTailKind, MgmtRouteRevertKind,
-            MgmtRouteStatsKind,
-        },
+        runtime::{Clock, LabelUniverse},
+    },
+};
+
+use super::{
+    control_kinds::{
+        LoadBeginKind, LoadCommitKind, MgmtRouteActivateKind, MgmtRouteCommandFamilyKind,
+        MgmtRouteCommandTailKind, MgmtRouteLoadAndActivateKind, MgmtRouteLoadFamilyKind,
+        MgmtRouteLoadKind, MgmtRouteReplyActivatedKind, MgmtRouteReplyErrorKind,
+        MgmtRouteReplyLoadedKind, MgmtRouteReplyRevertedKind, MgmtRouteReplyStatsKind,
+        MgmtRouteReplySuccessFamilyKind, MgmtRouteReplySuccessFinalKind,
+        MgmtRouteReplySuccessTailKind, MgmtRouteRevertKind, MgmtRouteStatsKind,
+    },
+    payload::{
+        LoadBegin, LoadChunk, LoadReport, MgmtError, SlotRequest, StatsReply, TransitionReport,
     },
 };
 
@@ -47,6 +51,7 @@ const LABEL_MGMT_LOAD_CHUNK: u8 = 42;
 const LABEL_MGMT_LOAD_COMMIT: u8 = 43;
 const LABEL_MGMT_STAGE: u8 = 44;
 const LABEL_MGMT_LOAD_AND_ACTIVATE: u8 = 46;
+const LABEL_MGMT_LOAD_FINAL_CHUNK: u8 = 77;
 const LABEL_MGMT_ROUTE_LOAD: u8 = 64;
 const LABEL_MGMT_ROUTE_ACTIVATE: u8 = 65;
 const LABEL_MGMT_ROUTE_REVERT: u8 = 66;
@@ -60,640 +65,704 @@ const LABEL_MGMT_ROUTE_REPLY_REVERTED: u8 = 73;
 const LABEL_MGMT_ROUTE_REPLY_STATS: u8 = 74;
 const LABEL_MGMT_ROUTE_COMMAND_FAMILY: u8 = 75;
 const LABEL_MGMT_ROUTE_COMMAND_TAIL: u8 = 76;
-const LABEL_MGMT_LOAD_FINAL_CHUNK: u8 = 77;
 const LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY: u8 = 78;
 const LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL: u8 = 79;
 const LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL: u8 = 80;
 
 type RouteMsg<const LABEL: u8, Kind> = g::Msg<LABEL, GenericCapToken<Kind>, CanonicalControl<Kind>>;
-type ControllerHead<const LABEL: u8, Kind> = StepCons<
-    steps::SendStep<g::Role<ROLE_CONTROLLER>, g::Role<ROLE_CONTROLLER>, RouteMsg<LABEL, Kind>>,
-    StepNil,
->;
-type ControllerPolicyHead<const LABEL: u8, Kind, const POLICY_ID: u16> =
-    PolicySteps<ControllerHead<LABEL, Kind>, POLICY_ID>;
-type ClusterHead<const LABEL: u8, Kind> = StepCons<
-    steps::SendStep<g::Role<ROLE_CLUSTER>, g::Role<ROLE_CLUSTER>, RouteMsg<LABEL, Kind>>,
-    StepNil,
->;
-type ClusterPolicyHead<const LABEL: u8, Kind, const POLICY_ID: u16> =
-    PolicySteps<ClusterHead<LABEL, Kind>, POLICY_ID>;
-type ControllerSend<const LABEL: u8, Payload> = StepCons<
-    steps::SendStep<g::Role<ROLE_CONTROLLER>, g::Role<ROLE_CLUSTER>, g::Msg<LABEL, Payload>>,
-    StepNil,
->;
-type ControllerControlSend<const LABEL: u8, Payload, Control> = StepCons<
-    steps::SendStep<
-        g::Role<ROLE_CONTROLLER>,
-        g::Role<ROLE_CLUSTER>,
-        g::Msg<LABEL, Payload, Control>,
-    >,
-    StepNil,
->;
-type ClusterSend<const LABEL: u8, Payload> = StepCons<
-    steps::SendStep<g::Role<ROLE_CLUSTER>, g::Role<ROLE_CONTROLLER>, g::Msg<LABEL, Payload>>,
-    StepNil,
->;
 
-type LoadBeginTokenBody = ControllerControlSend<
-    LABEL_MGMT_LOAD_BEGIN,
-    GenericCapToken<LoadBeginKind>,
-    ExternalControl<LoadBeginKind>,
->;
-
-const LOAD_REQUEST_HEAD: Program<
-    ControllerPolicyHead<LABEL_MGMT_ROUTE_LOAD, MgmtRouteLoadKind, REQUEST_LOAD_POLICY_ID>,
-> = g::send::<
-    g::Role<ROLE_CONTROLLER>,
-    g::Role<ROLE_CONTROLLER>,
-    RouteMsg<LABEL_MGMT_ROUTE_LOAD, MgmtRouteLoadKind>,
-    0,
->()
-.policy::<REQUEST_LOAD_POLICY_ID>();
-
-const LOAD_BEGIN: Program<LoadBeginTokenBody> = g::send::<
-    g::Role<ROLE_CONTROLLER>,
-    g::Role<ROLE_CLUSTER>,
-    g::Msg<LABEL_MGMT_LOAD_BEGIN, GenericCapToken<LoadBeginKind>, ExternalControl<LoadBeginKind>>,
-    0,
->();
-
-type LoopContinueBody = ControllerSend<LABEL_MGMT_LOAD_CHUNK, LoadChunk>;
-type LoadFinalChunkBody = ControllerSend<LABEL_MGMT_LOAD_FINAL_CHUNK, LoadChunk>;
-type LoopContinueHead = PolicySteps<
-    StepCons<
-        steps::SendStep<
+fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
+    let load_begin_token = || {
+        g::send::<
             g::Role<ROLE_CONTROLLER>,
-            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CLUSTER>,
             g::Msg<
-                LABEL_LOOP_CONTINUE,
-                GenericCapToken<LoopContinueKind>,
-                CanonicalControl<LoopContinueKind>,
+                LABEL_MGMT_LOAD_BEGIN,
+                GenericCapToken<LoadBeginKind>,
+                ExternalControl<LoadBeginKind>,
             >,
-        >,
-        StepNil,
-    >,
-    LOOP_POLICY_ID,
->;
-type LoopBreakHead = PolicySteps<
-    StepCons<
-        steps::SendStep<
+            0,
+        >()
+    };
+
+    let load_commit_token = || {
+        g::send::<
             g::Role<ROLE_CONTROLLER>,
-            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CLUSTER>,
             g::Msg<
-                LABEL_LOOP_BREAK,
-                GenericCapToken<LoopBreakKind>,
-                CanonicalControl<LoopBreakKind>,
+                LABEL_MGMT_LOAD_COMMIT,
+                GenericCapToken<LoadCommitKind>,
+                ExternalControl<LoadCommitKind>,
             >,
-        >,
-        StepNil,
-    >,
-    LOOP_POLICY_ID,
->;
-type LoopContinueArm = SeqSteps<LoopContinueHead, LoopContinueBody>;
-type LoopBreakArm = SeqSteps<LoopBreakHead, LoadFinalChunkBody>;
+            0,
+        >()
+    };
 
-const LOOP_CONTINUE_ARM: Program<LoopContinueArm> = g::seq(
-    g::send::<
-        g::Role<ROLE_CONTROLLER>,
-        g::Role<ROLE_CONTROLLER>,
-        g::Msg<
-            LABEL_LOOP_CONTINUE,
-            GenericCapToken<LoopContinueKind>,
-            CanonicalControl<LoopContinueKind>,
-        >,
-        0,
-    >()
-    .policy::<LOOP_POLICY_ID>(),
-    g::send::<
-        g::Role<ROLE_CONTROLLER>,
-        g::Role<ROLE_CLUSTER>,
-        g::Msg<LABEL_MGMT_LOAD_CHUNK, LoadChunk>,
-        0,
-    >(),
-);
+    let load_stream_loop = || {
+        let continue_arm = g::seq(
+            g::send::<
+                g::Role<ROLE_CONTROLLER>,
+                g::Role<ROLE_CONTROLLER>,
+                g::Msg<
+                    LABEL_LOOP_CONTINUE,
+                    GenericCapToken<hibana::substrate::cap::advanced::LoopContinueKind>,
+                    CanonicalControl<hibana::substrate::cap::advanced::LoopContinueKind>,
+                >,
+                0,
+            >()
+            .policy::<LOOP_POLICY_ID>(),
+            g::send::<
+                g::Role<ROLE_CONTROLLER>,
+                g::Role<ROLE_CLUSTER>,
+                g::Msg<LABEL_MGMT_LOAD_CHUNK, LoadChunk>,
+                0,
+            >(),
+        );
+        let break_arm = g::seq(
+            g::send::<
+                g::Role<ROLE_CONTROLLER>,
+                g::Role<ROLE_CONTROLLER>,
+                g::Msg<
+                    LABEL_LOOP_BREAK,
+                    GenericCapToken<hibana::substrate::cap::advanced::LoopBreakKind>,
+                    CanonicalControl<hibana::substrate::cap::advanced::LoopBreakKind>,
+                >,
+                0,
+            >()
+            .policy::<LOOP_POLICY_ID>(),
+            g::send::<
+                g::Role<ROLE_CONTROLLER>,
+                g::Role<ROLE_CLUSTER>,
+                g::Msg<LABEL_MGMT_LOAD_FINAL_CHUNK, LoadChunk>,
+                0,
+            >(),
+        );
+        g::route(continue_arm, break_arm)
+    };
 
-const LOOP_BREAK_PREFIX: Program<LoopBreakHead> = g::send::<
-    g::Role<ROLE_CONTROLLER>,
-    g::Role<ROLE_CONTROLLER>,
-    g::Msg<LABEL_LOOP_BREAK, GenericCapToken<LoopBreakKind>, CanonicalControl<LoopBreakKind>>,
-    0,
->()
-.policy::<LOOP_POLICY_ID>();
+    let load_stream = || {
+        g::seq(
+            g::seq(load_begin_token(), load_stream_loop()),
+            load_commit_token(),
+        )
+    };
 
-const LOAD_FINAL_CHUNK_BODY: Program<LoadFinalChunkBody> = g::send::<
-    g::Role<ROLE_CONTROLLER>,
-    g::Role<ROLE_CLUSTER>,
-    g::Msg<LABEL_MGMT_LOAD_FINAL_CHUNK, LoadChunk>,
-    0,
->();
+    let load_request = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CONTROLLER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD }, MgmtRouteLoadKind>,
+            0,
+        >()
+        .policy::<REQUEST_LOAD_POLICY_ID>();
+        let arm_body = g::seq(
+            g::send::<
+                g::Role<ROLE_CONTROLLER>,
+                g::Role<ROLE_CLUSTER>,
+                g::Msg<LABEL_MGMT_STAGE, LoadBegin>,
+                0,
+            >(),
+            load_stream(),
+        );
+        g::seq(arm_head, arm_body)
+    };
 
-const LOOP_BREAK_ARM: Program<LoopBreakArm> = g::seq(LOOP_BREAK_PREFIX, LOAD_FINAL_CHUNK_BODY);
+    let load_and_activate_request = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CONTROLLER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD_AND_ACTIVATE }, MgmtRouteLoadAndActivateKind>,
+            0,
+        >()
+        .policy::<REQUEST_LOAD_POLICY_ID>();
+        let arm_body = g::seq(
+            g::send::<
+                g::Role<ROLE_CONTROLLER>,
+                g::Role<ROLE_CLUSTER>,
+                g::Msg<LABEL_MGMT_LOAD_AND_ACTIVATE, LoadBegin>,
+                0,
+            >(),
+            load_stream(),
+        );
+        g::seq(arm_head, arm_body)
+    };
 
-type LoadStreamLoopRoute = RouteSteps<LoopContinueArm, LoopBreakArm>;
-const LOOP_SEGMENT: Program<LoadStreamLoopRoute> = g::route(LOOP_CONTINUE_ARM, LOOP_BREAK_ARM);
+    let load_family = || {
+        let family_head = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CONTROLLER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD_FAMILY }, MgmtRouteLoadFamilyKind>,
+            0,
+        >()
+        .policy::<REQUEST_ROOT_POLICY_ID>();
+        let family_route = g::route(load_request(), load_and_activate_request());
+        g::seq(family_head, family_route)
+    };
 
-type LoadCommitBody = ControllerControlSend<
-    LABEL_MGMT_LOAD_COMMIT,
-    GenericCapToken<LoadCommitKind>,
-    ExternalControl<LoadCommitKind>,
->;
+    let activate_request = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CONTROLLER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_ACTIVATE }, MgmtRouteActivateKind>,
+            0,
+        >()
+        .policy::<REQUEST_COMMAND_POLICY_ID>();
+        let arm_body = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CLUSTER>,
+            g::Msg<LABEL_MGMT_ACTIVATE, SlotRequest>,
+            0,
+        >();
+        g::seq(arm_head, arm_body)
+    };
 
-const LOAD_COMMIT_BODY: Program<LoadCommitBody> = g::send::<
-    g::Role<ROLE_CONTROLLER>,
-    g::Role<ROLE_CLUSTER>,
-    g::Msg<
-        LABEL_MGMT_LOAD_COMMIT,
-        GenericCapToken<LoadCommitKind>,
-        ExternalControl<LoadCommitKind>,
-    >,
-    0,
->();
+    let revert_request = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CONTROLLER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REVERT }, MgmtRouteRevertKind>,
+            0,
+        >()
+        .policy::<REQUEST_COMMAND_TAIL_POLICY_ID>();
+        let arm_body = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CLUSTER>,
+            g::Msg<LABEL_MGMT_REVERT, SlotRequest>,
+            0,
+        >();
+        g::seq(arm_head, arm_body)
+    };
 
-type LoadStreamBody = SeqSteps<SeqSteps<LoadBeginTokenBody, LoadStreamLoopRoute>, LoadCommitBody>;
-type LoadRequestBody = SeqSteps<ControllerSend<LABEL_MGMT_STAGE, LoadBegin>, LoadStreamBody>;
-type LoadRequestArm = SeqSteps<
-    ControllerPolicyHead<LABEL_MGMT_ROUTE_LOAD, MgmtRouteLoadKind, REQUEST_LOAD_POLICY_ID>,
-    LoadRequestBody,
->;
-type LoadActivateBody =
-    SeqSteps<ControllerSend<LABEL_MGMT_LOAD_AND_ACTIVATE, LoadBegin>, LoadStreamBody>;
-type LoadActivateArm = SeqSteps<
-    ControllerPolicyHead<
-        LABEL_MGMT_ROUTE_LOAD_AND_ACTIVATE,
-        MgmtRouteLoadAndActivateKind,
-        REQUEST_LOAD_POLICY_ID,
-    >,
-    LoadActivateBody,
->;
-type LoadRouteSteps = RouteSteps<LoadRequestArm, LoadActivateArm>;
-type LoadFamilyArm = SeqSteps<
-    ControllerPolicyHead<
-        LABEL_MGMT_ROUTE_LOAD_FAMILY,
-        MgmtRouteLoadFamilyKind,
-        REQUEST_ROOT_POLICY_ID,
-    >,
-    LoadRouteSteps,
->;
+    let stats_request = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CONTROLLER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_STATS }, MgmtRouteStatsKind>,
+            0,
+        >()
+        .policy::<REQUEST_COMMAND_TAIL_POLICY_ID>();
+        let arm_body = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CLUSTER>,
+            g::Msg<LABEL_MGMT_STATS, SlotRequest>,
+            0,
+        >();
+        g::seq(arm_head, arm_body)
+    };
 
-const LOAD_ACTIVATE_HEAD: Program<
-    ControllerPolicyHead<
-        LABEL_MGMT_ROUTE_LOAD_AND_ACTIVATE,
-        MgmtRouteLoadAndActivateKind,
-        REQUEST_LOAD_POLICY_ID,
-    >,
-> = g::send::<
-    g::Role<ROLE_CONTROLLER>,
-    g::Role<ROLE_CONTROLLER>,
-    RouteMsg<LABEL_MGMT_ROUTE_LOAD_AND_ACTIVATE, MgmtRouteLoadAndActivateKind>,
-    0,
->()
-.policy::<REQUEST_LOAD_POLICY_ID>();
+    let command_tail = || {
+        let tail_head = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CONTROLLER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_COMMAND_TAIL }, MgmtRouteCommandTailKind>,
+            0,
+        >()
+        .policy::<REQUEST_COMMAND_POLICY_ID>();
+        let tail_route = g::route(revert_request(), stats_request());
+        g::seq(tail_head, tail_route)
+    };
 
-const LOAD_STREAM_BODY: Program<LoadStreamBody> =
-    g::seq(g::seq(LOAD_BEGIN, LOOP_SEGMENT), LOAD_COMMIT_BODY);
+    let command_family = || {
+        let family_head = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CONTROLLER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_COMMAND_FAMILY }, MgmtRouteCommandFamilyKind>,
+            0,
+        >()
+        .policy::<REQUEST_ROOT_POLICY_ID>();
+        let family_route = g::route(activate_request(), command_tail());
+        g::seq(family_head, family_route)
+    };
 
-const LOAD_REQUEST_BODY: Program<LoadRequestBody> = g::seq(
-    g::send::<
-        g::Role<ROLE_CONTROLLER>,
-        g::Role<ROLE_CLUSTER>,
-        g::Msg<LABEL_MGMT_STAGE, LoadBegin>,
-        0,
-    >(),
-    LOAD_STREAM_BODY,
-);
+    let request_route = g::route(load_family(), command_family());
 
-const LOAD_REQUEST: Program<LoadRequestArm> = g::seq(LOAD_REQUEST_HEAD, LOAD_REQUEST_BODY);
+    let error_reply = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_ERROR }, MgmtRouteReplyErrorKind>,
+            0,
+        >()
+        .policy::<REPLY_ROOT_POLICY_ID>();
+        let arm_body = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CONTROLLER>,
+            g::Msg<LABEL_MGMT_REPLY_ERROR, MgmtError>,
+            0,
+        >();
+        g::seq(arm_head, arm_body)
+    };
 
-const LOAD_ACTIVATE_BODY: Program<LoadActivateBody> = g::seq(
-    g::send::<
-        g::Role<ROLE_CONTROLLER>,
-        g::Role<ROLE_CLUSTER>,
-        g::Msg<LABEL_MGMT_LOAD_AND_ACTIVATE, LoadBegin>,
-        0,
-    >(),
-    LOAD_STREAM_BODY,
-);
+    let loaded_reply = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_LOADED }, MgmtRouteReplyLoadedKind>,
+            0,
+        >()
+        .policy::<REPLY_SUCCESS_POLICY_ID>();
+        let arm_body = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CONTROLLER>,
+            g::Msg<LABEL_MGMT_REPLY_LOADED, LoadReport>,
+            0,
+        >();
+        g::seq(arm_head, arm_body)
+    };
 
-const LOAD_ACTIVATE_REQUEST: Program<LoadActivateArm> =
-    g::seq(LOAD_ACTIVATE_HEAD, LOAD_ACTIVATE_BODY);
+    let activated_reply = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_ACTIVATED }, MgmtRouteReplyActivatedKind>,
+            0,
+        >()
+        .policy::<REPLY_SUCCESS_TAIL_POLICY_ID>();
+        let arm_body = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CONTROLLER>,
+            g::Msg<LABEL_MGMT_REPLY_ACTIVATED, TransitionReport>,
+            0,
+        >();
+        g::seq(arm_head, arm_body)
+    };
 
-const LOAD_FAMILY_HEAD: Program<
-    ControllerPolicyHead<
-        LABEL_MGMT_ROUTE_LOAD_FAMILY,
-        MgmtRouteLoadFamilyKind,
-        REQUEST_ROOT_POLICY_ID,
-    >,
-> = g::send::<
-    g::Role<ROLE_CONTROLLER>,
-    g::Role<ROLE_CONTROLLER>,
-    RouteMsg<LABEL_MGMT_ROUTE_LOAD_FAMILY, MgmtRouteLoadFamilyKind>,
-    0,
->()
-.policy::<REQUEST_ROOT_POLICY_ID>();
+    let reverted_reply = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_REVERTED }, MgmtRouteReplyRevertedKind>,
+            0,
+        >()
+        .policy::<REPLY_SUCCESS_FINAL_POLICY_ID>();
+        let arm_body = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CONTROLLER>,
+            g::Msg<LABEL_MGMT_REPLY_REVERTED, TransitionReport>,
+            0,
+        >();
+        g::seq(arm_head, arm_body)
+    };
 
-const LOAD_ROUTE: Program<LoadRouteSteps> = g::route(LOAD_REQUEST, LOAD_ACTIVATE_REQUEST);
-const LOAD_FAMILY_REQUEST: Program<LoadFamilyArm> = g::seq(LOAD_FAMILY_HEAD, LOAD_ROUTE);
+    let stats_reply = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_STATS }, MgmtRouteReplyStatsKind>,
+            0,
+        >()
+        .policy::<REPLY_SUCCESS_FINAL_POLICY_ID>();
+        let arm_body = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CONTROLLER>,
+            g::Msg<LABEL_MGMT_REPLY_STATS, StatsReply>,
+            0,
+        >();
+        g::seq(arm_head, arm_body)
+    };
 
-type ActivateBody = ControllerSend<LABEL_MGMT_ACTIVATE, SlotRequest>;
-type ActivateArm = SeqSteps<
-    ControllerPolicyHead<
-        LABEL_MGMT_ROUTE_ACTIVATE,
-        MgmtRouteActivateKind,
-        REQUEST_COMMAND_POLICY_ID,
-    >,
-    ActivateBody,
->;
+    let success_final_reply = || {
+        let family_head = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL }, MgmtRouteReplySuccessFinalKind>,
+            0,
+        >()
+        .policy::<REPLY_SUCCESS_TAIL_POLICY_ID>();
+        let family_route = g::route(reverted_reply(), stats_reply());
+        g::seq(family_head, family_route)
+    };
 
-const ACTIVATE_HEAD: Program<
-    ControllerPolicyHead<
-        LABEL_MGMT_ROUTE_ACTIVATE,
-        MgmtRouteActivateKind,
-        REQUEST_COMMAND_POLICY_ID,
-    >,
-> = g::send::<
-    g::Role<ROLE_CONTROLLER>,
-    g::Role<ROLE_CONTROLLER>,
-    RouteMsg<LABEL_MGMT_ROUTE_ACTIVATE, MgmtRouteActivateKind>,
-    0,
->()
-.policy::<REQUEST_COMMAND_POLICY_ID>();
+    let success_tail_reply = || {
+        let family_head = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL }, MgmtRouteReplySuccessTailKind>,
+            0,
+        >()
+        .policy::<REPLY_SUCCESS_POLICY_ID>();
+        let family_route = g::route(activated_reply(), success_final_reply());
+        g::seq(family_head, family_route)
+    };
 
-const ACTIVATE_BODY: Program<ActivateBody> = g::send::<
-    g::Role<ROLE_CONTROLLER>,
-    g::Role<ROLE_CLUSTER>,
-    g::Msg<LABEL_MGMT_ACTIVATE, SlotRequest>,
-    0,
->();
+    let success_reply = || {
+        let family_head = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY }, MgmtRouteReplySuccessFamilyKind>,
+            0,
+        >()
+        .policy::<REPLY_ROOT_POLICY_ID>();
+        let family_route = g::route(loaded_reply(), success_tail_reply());
+        g::seq(family_head, family_route)
+    };
 
-const ACTIVATE_REQUEST: Program<ActivateArm> = g::seq(ACTIVATE_HEAD, ACTIVATE_BODY);
+    let reply_route = g::route(error_reply(), success_reply());
+    let program = g::seq(request_route, reply_route);
+    let projected: RoleProgram<ROLE_CONTROLLER> = project(&program);
+    projected
+}
 
-type RevertBody = ControllerSend<LABEL_MGMT_REVERT, SlotRequest>;
-type RevertArm = SeqSteps<
-    ControllerPolicyHead<
-        LABEL_MGMT_ROUTE_REVERT,
-        MgmtRouteRevertKind,
-        REQUEST_COMMAND_TAIL_POLICY_ID,
-    >,
-    RevertBody,
->;
+fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
+    let load_begin_token = || {
+        g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CLUSTER>,
+            g::Msg<
+                LABEL_MGMT_LOAD_BEGIN,
+                GenericCapToken<LoadBeginKind>,
+                ExternalControl<LoadBeginKind>,
+            >,
+            0,
+        >()
+    };
 
-const REVERT_HEAD: Program<
-    ControllerPolicyHead<
-        LABEL_MGMT_ROUTE_REVERT,
-        MgmtRouteRevertKind,
-        REQUEST_COMMAND_TAIL_POLICY_ID,
-    >,
-> = g::send::<
-    g::Role<ROLE_CONTROLLER>,
-    g::Role<ROLE_CONTROLLER>,
-    RouteMsg<LABEL_MGMT_ROUTE_REVERT, MgmtRouteRevertKind>,
-    0,
->()
-.policy::<REQUEST_COMMAND_TAIL_POLICY_ID>();
+    let load_commit_token = || {
+        g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CLUSTER>,
+            g::Msg<
+                LABEL_MGMT_LOAD_COMMIT,
+                GenericCapToken<LoadCommitKind>,
+                ExternalControl<LoadCommitKind>,
+            >,
+            0,
+        >()
+    };
 
-const REVERT_BODY: Program<RevertBody> = g::send::<
-    g::Role<ROLE_CONTROLLER>,
-    g::Role<ROLE_CLUSTER>,
-    g::Msg<LABEL_MGMT_REVERT, SlotRequest>,
-    0,
->();
+    let load_stream_loop = || {
+        let continue_arm = g::seq(
+            g::send::<
+                g::Role<ROLE_CONTROLLER>,
+                g::Role<ROLE_CONTROLLER>,
+                g::Msg<
+                    LABEL_LOOP_CONTINUE,
+                    GenericCapToken<hibana::substrate::cap::advanced::LoopContinueKind>,
+                    CanonicalControl<hibana::substrate::cap::advanced::LoopContinueKind>,
+                >,
+                0,
+            >()
+            .policy::<LOOP_POLICY_ID>(),
+            g::send::<
+                g::Role<ROLE_CONTROLLER>,
+                g::Role<ROLE_CLUSTER>,
+                g::Msg<LABEL_MGMT_LOAD_CHUNK, LoadChunk>,
+                0,
+            >(),
+        );
+        let break_arm = g::seq(
+            g::send::<
+                g::Role<ROLE_CONTROLLER>,
+                g::Role<ROLE_CONTROLLER>,
+                g::Msg<
+                    LABEL_LOOP_BREAK,
+                    GenericCapToken<hibana::substrate::cap::advanced::LoopBreakKind>,
+                    CanonicalControl<hibana::substrate::cap::advanced::LoopBreakKind>,
+                >,
+                0,
+            >()
+            .policy::<LOOP_POLICY_ID>(),
+            g::send::<
+                g::Role<ROLE_CONTROLLER>,
+                g::Role<ROLE_CLUSTER>,
+                g::Msg<LABEL_MGMT_LOAD_FINAL_CHUNK, LoadChunk>,
+                0,
+            >(),
+        );
+        g::route(continue_arm, break_arm)
+    };
 
-const REVERT_REQUEST: Program<RevertArm> = g::seq(REVERT_HEAD, REVERT_BODY);
+    let load_stream = || {
+        g::seq(
+            g::seq(load_begin_token(), load_stream_loop()),
+            load_commit_token(),
+        )
+    };
 
-type StatsBody = ControllerSend<LABEL_MGMT_STATS, SlotRequest>;
-type StatsArm = SeqSteps<
-    ControllerPolicyHead<
-        LABEL_MGMT_ROUTE_STATS,
-        MgmtRouteStatsKind,
-        REQUEST_COMMAND_TAIL_POLICY_ID,
-    >,
-    StatsBody,
->;
+    let load_request = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CONTROLLER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD }, MgmtRouteLoadKind>,
+            0,
+        >()
+        .policy::<REQUEST_LOAD_POLICY_ID>();
+        let arm_body = g::seq(
+            g::send::<
+                g::Role<ROLE_CONTROLLER>,
+                g::Role<ROLE_CLUSTER>,
+                g::Msg<LABEL_MGMT_STAGE, LoadBegin>,
+                0,
+            >(),
+            load_stream(),
+        );
+        g::seq(arm_head, arm_body)
+    };
 
-const STATS_HEAD: Program<
-    ControllerPolicyHead<
-        LABEL_MGMT_ROUTE_STATS,
-        MgmtRouteStatsKind,
-        REQUEST_COMMAND_TAIL_POLICY_ID,
-    >,
-> = g::send::<
-    g::Role<ROLE_CONTROLLER>,
-    g::Role<ROLE_CONTROLLER>,
-    RouteMsg<LABEL_MGMT_ROUTE_STATS, MgmtRouteStatsKind>,
-    0,
->()
-.policy::<REQUEST_COMMAND_TAIL_POLICY_ID>();
+    let load_and_activate_request = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CONTROLLER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD_AND_ACTIVATE }, MgmtRouteLoadAndActivateKind>,
+            0,
+        >()
+        .policy::<REQUEST_LOAD_POLICY_ID>();
+        let arm_body = g::seq(
+            g::send::<
+                g::Role<ROLE_CONTROLLER>,
+                g::Role<ROLE_CLUSTER>,
+                g::Msg<LABEL_MGMT_LOAD_AND_ACTIVATE, LoadBegin>,
+                0,
+            >(),
+            load_stream(),
+        );
+        g::seq(arm_head, arm_body)
+    };
 
-const STATS_BODY: Program<StatsBody> = g::send::<
-    g::Role<ROLE_CONTROLLER>,
-    g::Role<ROLE_CLUSTER>,
-    g::Msg<LABEL_MGMT_STATS, SlotRequest>,
-    0,
->();
+    let load_family = || {
+        let family_head = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CONTROLLER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD_FAMILY }, MgmtRouteLoadFamilyKind>,
+            0,
+        >()
+        .policy::<REQUEST_ROOT_POLICY_ID>();
+        let family_route = g::route(load_request(), load_and_activate_request());
+        g::seq(family_head, family_route)
+    };
 
-const STATS_REQUEST: Program<StatsArm> = g::seq(STATS_HEAD, STATS_BODY);
+    let activate_request = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CONTROLLER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_ACTIVATE }, MgmtRouteActivateKind>,
+            0,
+        >()
+        .policy::<REQUEST_COMMAND_POLICY_ID>();
+        let arm_body = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CLUSTER>,
+            g::Msg<LABEL_MGMT_ACTIVATE, SlotRequest>,
+            0,
+        >();
+        g::seq(arm_head, arm_body)
+    };
 
-type CommandTailRouteSteps = RouteSteps<RevertArm, StatsArm>;
-type CommandTailArm = SeqSteps<
-    ControllerPolicyHead<
-        LABEL_MGMT_ROUTE_COMMAND_TAIL,
-        MgmtRouteCommandTailKind,
-        REQUEST_COMMAND_POLICY_ID,
-    >,
-    CommandTailRouteSteps,
->;
-type CommandRouteSteps = RouteSteps<ActivateArm, CommandTailArm>;
-type CommandFamilyArm = SeqSteps<
-    ControllerPolicyHead<
-        LABEL_MGMT_ROUTE_COMMAND_FAMILY,
-        MgmtRouteCommandFamilyKind,
-        REQUEST_ROOT_POLICY_ID,
-    >,
-    CommandRouteSteps,
->;
-type RequestRouteSteps = RouteSteps<LoadFamilyArm, CommandFamilyArm>;
+    let revert_request = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CONTROLLER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REVERT }, MgmtRouteRevertKind>,
+            0,
+        >()
+        .policy::<REQUEST_COMMAND_TAIL_POLICY_ID>();
+        let arm_body = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CLUSTER>,
+            g::Msg<LABEL_MGMT_REVERT, SlotRequest>,
+            0,
+        >();
+        g::seq(arm_head, arm_body)
+    };
 
-const COMMAND_TAIL_HEAD: Program<
-    ControllerPolicyHead<
-        LABEL_MGMT_ROUTE_COMMAND_TAIL,
-        MgmtRouteCommandTailKind,
-        REQUEST_COMMAND_POLICY_ID,
-    >,
-> = g::send::<
-    g::Role<ROLE_CONTROLLER>,
-    g::Role<ROLE_CONTROLLER>,
-    RouteMsg<LABEL_MGMT_ROUTE_COMMAND_TAIL, MgmtRouteCommandTailKind>,
-    0,
->()
-.policy::<REQUEST_COMMAND_POLICY_ID>();
+    let stats_request = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CONTROLLER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_STATS }, MgmtRouteStatsKind>,
+            0,
+        >()
+        .policy::<REQUEST_COMMAND_TAIL_POLICY_ID>();
+        let arm_body = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CLUSTER>,
+            g::Msg<LABEL_MGMT_STATS, SlotRequest>,
+            0,
+        >();
+        g::seq(arm_head, arm_body)
+    };
 
-const COMMAND_TAIL_ROUTE: Program<CommandTailRouteSteps> = g::route(REVERT_REQUEST, STATS_REQUEST);
-const COMMAND_TAIL_REQUEST: Program<CommandTailArm> = g::seq(COMMAND_TAIL_HEAD, COMMAND_TAIL_ROUTE);
+    let command_tail = || {
+        let tail_head = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CONTROLLER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_COMMAND_TAIL }, MgmtRouteCommandTailKind>,
+            0,
+        >()
+        .policy::<REQUEST_COMMAND_POLICY_ID>();
+        let tail_route = g::route(revert_request(), stats_request());
+        g::seq(tail_head, tail_route)
+    };
 
-const COMMAND_ROUTE: Program<CommandRouteSteps> = g::route(ACTIVATE_REQUEST, COMMAND_TAIL_REQUEST);
+    let command_family = || {
+        let family_head = g::send::<
+            g::Role<ROLE_CONTROLLER>,
+            g::Role<ROLE_CONTROLLER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_COMMAND_FAMILY }, MgmtRouteCommandFamilyKind>,
+            0,
+        >()
+        .policy::<REQUEST_ROOT_POLICY_ID>();
+        let family_route = g::route(activate_request(), command_tail());
+        g::seq(family_head, family_route)
+    };
 
-const COMMAND_FAMILY_HEAD: Program<
-    ControllerPolicyHead<
-        LABEL_MGMT_ROUTE_COMMAND_FAMILY,
-        MgmtRouteCommandFamilyKind,
-        REQUEST_ROOT_POLICY_ID,
-    >,
-> = g::send::<
-    g::Role<ROLE_CONTROLLER>,
-    g::Role<ROLE_CONTROLLER>,
-    RouteMsg<LABEL_MGMT_ROUTE_COMMAND_FAMILY, MgmtRouteCommandFamilyKind>,
-    0,
->()
-.policy::<REQUEST_ROOT_POLICY_ID>();
+    let request_route = g::route(load_family(), command_family());
 
-const COMMAND_FAMILY_REQUEST: Program<CommandFamilyArm> =
-    g::seq(COMMAND_FAMILY_HEAD, COMMAND_ROUTE);
-const REQUEST_ROUTE: Program<RequestRouteSteps> =
-    g::route(LOAD_FAMILY_REQUEST, COMMAND_FAMILY_REQUEST);
+    let error_reply = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_ERROR }, MgmtRouteReplyErrorKind>,
+            0,
+        >()
+        .policy::<REPLY_ROOT_POLICY_ID>();
+        let arm_body = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CONTROLLER>,
+            g::Msg<LABEL_MGMT_REPLY_ERROR, MgmtError>,
+            0,
+        >();
+        g::seq(arm_head, arm_body)
+    };
 
-type ErrorReplyBody = ClusterSend<LABEL_MGMT_REPLY_ERROR, MgmtError>;
-type ErrorReplyArm = SeqSteps<
-    ClusterPolicyHead<LABEL_MGMT_ROUTE_REPLY_ERROR, MgmtRouteReplyErrorKind, REPLY_ROOT_POLICY_ID>,
-    ErrorReplyBody,
->;
+    let loaded_reply = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_LOADED }, MgmtRouteReplyLoadedKind>,
+            0,
+        >()
+        .policy::<REPLY_SUCCESS_POLICY_ID>();
+        let arm_body = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CONTROLLER>,
+            g::Msg<LABEL_MGMT_REPLY_LOADED, LoadReport>,
+            0,
+        >();
+        g::seq(arm_head, arm_body)
+    };
 
-const ERROR_REPLY_HEAD: Program<
-    ClusterPolicyHead<LABEL_MGMT_ROUTE_REPLY_ERROR, MgmtRouteReplyErrorKind, REPLY_ROOT_POLICY_ID>,
-> = g::send::<
-    g::Role<ROLE_CLUSTER>,
-    g::Role<ROLE_CLUSTER>,
-    RouteMsg<LABEL_MGMT_ROUTE_REPLY_ERROR, MgmtRouteReplyErrorKind>,
-    0,
->()
-.policy::<REPLY_ROOT_POLICY_ID>();
+    let activated_reply = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_ACTIVATED }, MgmtRouteReplyActivatedKind>,
+            0,
+        >()
+        .policy::<REPLY_SUCCESS_TAIL_POLICY_ID>();
+        let arm_body = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CONTROLLER>,
+            g::Msg<LABEL_MGMT_REPLY_ACTIVATED, TransitionReport>,
+            0,
+        >();
+        g::seq(arm_head, arm_body)
+    };
 
-const ERROR_REPLY_BODY: Program<ErrorReplyBody> = g::send::<
-    g::Role<ROLE_CLUSTER>,
-    g::Role<ROLE_CONTROLLER>,
-    g::Msg<LABEL_MGMT_REPLY_ERROR, MgmtError>,
-    0,
->();
+    let reverted_reply = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_REVERTED }, MgmtRouteReplyRevertedKind>,
+            0,
+        >()
+        .policy::<REPLY_SUCCESS_FINAL_POLICY_ID>();
+        let arm_body = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CONTROLLER>,
+            g::Msg<LABEL_MGMT_REPLY_REVERTED, TransitionReport>,
+            0,
+        >();
+        g::seq(arm_head, arm_body)
+    };
 
-const ERROR_REPLY: Program<ErrorReplyArm> = g::seq(ERROR_REPLY_HEAD, ERROR_REPLY_BODY);
+    let stats_reply = || {
+        let arm_head = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_STATS }, MgmtRouteReplyStatsKind>,
+            0,
+        >()
+        .policy::<REPLY_SUCCESS_FINAL_POLICY_ID>();
+        let arm_body = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CONTROLLER>,
+            g::Msg<LABEL_MGMT_REPLY_STATS, StatsReply>,
+            0,
+        >();
+        g::seq(arm_head, arm_body)
+    };
 
-type LoadedReplyBody = ClusterSend<LABEL_MGMT_REPLY_LOADED, LoadReport>;
-type LoadedReplyArm = SeqSteps<
-    ClusterPolicyHead<
-        LABEL_MGMT_ROUTE_REPLY_LOADED,
-        MgmtRouteReplyLoadedKind,
-        REPLY_SUCCESS_POLICY_ID,
-    >,
-    LoadedReplyBody,
->;
+    let success_final_reply = || {
+        let family_head = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL }, MgmtRouteReplySuccessFinalKind>,
+            0,
+        >()
+        .policy::<REPLY_SUCCESS_TAIL_POLICY_ID>();
+        let family_route = g::route(reverted_reply(), stats_reply());
+        g::seq(family_head, family_route)
+    };
 
-const LOADED_REPLY_HEAD: Program<
-    ClusterPolicyHead<
-        LABEL_MGMT_ROUTE_REPLY_LOADED,
-        MgmtRouteReplyLoadedKind,
-        REPLY_SUCCESS_POLICY_ID,
-    >,
-> = g::send::<
-    g::Role<ROLE_CLUSTER>,
-    g::Role<ROLE_CLUSTER>,
-    RouteMsg<LABEL_MGMT_ROUTE_REPLY_LOADED, MgmtRouteReplyLoadedKind>,
-    0,
->()
-.policy::<REPLY_SUCCESS_POLICY_ID>();
+    let success_tail_reply = || {
+        let family_head = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL }, MgmtRouteReplySuccessTailKind>,
+            0,
+        >()
+        .policy::<REPLY_SUCCESS_POLICY_ID>();
+        let family_route = g::route(activated_reply(), success_final_reply());
+        g::seq(family_head, family_route)
+    };
 
-const LOADED_REPLY_BODY: Program<LoadedReplyBody> = g::send::<
-    g::Role<ROLE_CLUSTER>,
-    g::Role<ROLE_CONTROLLER>,
-    g::Msg<LABEL_MGMT_REPLY_LOADED, LoadReport>,
-    0,
->();
+    let success_reply = || {
+        let family_head = g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY }, MgmtRouteReplySuccessFamilyKind>,
+            0,
+        >()
+        .policy::<REPLY_ROOT_POLICY_ID>();
+        let family_route = g::route(loaded_reply(), success_tail_reply());
+        g::seq(family_head, family_route)
+    };
 
-const LOADED_REPLY: Program<LoadedReplyArm> = g::seq(LOADED_REPLY_HEAD, LOADED_REPLY_BODY);
+    let reply_route = g::route(error_reply(), success_reply());
+    let program = g::seq(request_route, reply_route);
+    let projected: RoleProgram<ROLE_CLUSTER> = project(&program);
+    projected
+}
 
-type ActivatedReplyBody = ClusterSend<LABEL_MGMT_REPLY_ACTIVATED, super::TransitionReport>;
-type ActivatedReplyArm = SeqSteps<
-    ClusterPolicyHead<
-        LABEL_MGMT_ROUTE_REPLY_ACTIVATED,
-        MgmtRouteReplyActivatedKind,
-        REPLY_SUCCESS_TAIL_POLICY_ID,
-    >,
-    ActivatedReplyBody,
->;
+#[allow(private_bounds)]
+pub fn attach_controller<'r, 'cfg, T, U, C, const MAX_RV: usize>(
+    kit: &'r SessionKit<'cfg, T, U, C, MAX_RV>,
+    rv: RendezvousId,
+    sid: SessionId,
+) -> Result<hibana::Endpoint<'r, ROLE_CONTROLLER>, AttachError>
+where
+    T: Transport + 'cfg,
+    U: LabelUniverse + 'cfg,
+    C: Clock + 'cfg,
+    'cfg: 'r,
+{
+    let program = controller_program();
+    kit.enter(rv, sid, &program, NoBinding)
+}
 
-const ACTIVATED_REPLY_HEAD: Program<
-    ClusterPolicyHead<
-        LABEL_MGMT_ROUTE_REPLY_ACTIVATED,
-        MgmtRouteReplyActivatedKind,
-        REPLY_SUCCESS_TAIL_POLICY_ID,
-    >,
-> = g::send::<
-    g::Role<ROLE_CLUSTER>,
-    g::Role<ROLE_CLUSTER>,
-    RouteMsg<LABEL_MGMT_ROUTE_REPLY_ACTIVATED, MgmtRouteReplyActivatedKind>,
-    0,
->()
-.policy::<REPLY_SUCCESS_TAIL_POLICY_ID>();
-
-const ACTIVATED_REPLY_BODY: Program<ActivatedReplyBody> = g::send::<
-    g::Role<ROLE_CLUSTER>,
-    g::Role<ROLE_CONTROLLER>,
-    g::Msg<LABEL_MGMT_REPLY_ACTIVATED, super::TransitionReport>,
-    0,
->();
-
-const ACTIVATED_REPLY: Program<ActivatedReplyArm> =
-    g::seq(ACTIVATED_REPLY_HEAD, ACTIVATED_REPLY_BODY);
-
-type RevertedReplyBody = ClusterSend<LABEL_MGMT_REPLY_REVERTED, super::TransitionReport>;
-type RevertedReplyArm = SeqSteps<
-    ClusterPolicyHead<
-        LABEL_MGMT_ROUTE_REPLY_REVERTED,
-        MgmtRouteReplyRevertedKind,
-        REPLY_SUCCESS_FINAL_POLICY_ID,
-    >,
-    RevertedReplyBody,
->;
-
-const REVERTED_REPLY_HEAD: Program<
-    ClusterPolicyHead<
-        LABEL_MGMT_ROUTE_REPLY_REVERTED,
-        MgmtRouteReplyRevertedKind,
-        REPLY_SUCCESS_FINAL_POLICY_ID,
-    >,
-> = g::send::<
-    g::Role<ROLE_CLUSTER>,
-    g::Role<ROLE_CLUSTER>,
-    RouteMsg<LABEL_MGMT_ROUTE_REPLY_REVERTED, MgmtRouteReplyRevertedKind>,
-    0,
->()
-.policy::<REPLY_SUCCESS_FINAL_POLICY_ID>();
-
-const REVERTED_REPLY_BODY: Program<RevertedReplyBody> = g::send::<
-    g::Role<ROLE_CLUSTER>,
-    g::Role<ROLE_CONTROLLER>,
-    g::Msg<LABEL_MGMT_REPLY_REVERTED, super::TransitionReport>,
-    0,
->();
-
-const REVERTED_REPLY: Program<RevertedReplyArm> = g::seq(REVERTED_REPLY_HEAD, REVERTED_REPLY_BODY);
-
-type StatsReplyBody = ClusterSend<LABEL_MGMT_REPLY_STATS, StatsReply>;
-type StatsReplyArm = SeqSteps<
-    ClusterPolicyHead<
-        LABEL_MGMT_ROUTE_REPLY_STATS,
-        MgmtRouteReplyStatsKind,
-        REPLY_SUCCESS_FINAL_POLICY_ID,
-    >,
-    StatsReplyBody,
->;
-
-const STATS_REPLY_HEAD: Program<
-    ClusterPolicyHead<
-        LABEL_MGMT_ROUTE_REPLY_STATS,
-        MgmtRouteReplyStatsKind,
-        REPLY_SUCCESS_FINAL_POLICY_ID,
-    >,
-> = g::send::<
-    g::Role<ROLE_CLUSTER>,
-    g::Role<ROLE_CLUSTER>,
-    RouteMsg<LABEL_MGMT_ROUTE_REPLY_STATS, MgmtRouteReplyStatsKind>,
-    0,
->()
-.policy::<REPLY_SUCCESS_FINAL_POLICY_ID>();
-
-const STATS_REPLY_BODY: Program<StatsReplyBody> = g::send::<
-    g::Role<ROLE_CLUSTER>,
-    g::Role<ROLE_CONTROLLER>,
-    g::Msg<LABEL_MGMT_REPLY_STATS, StatsReply>,
-    0,
->();
-
-const STATS_REPLY: Program<StatsReplyArm> = g::seq(STATS_REPLY_HEAD, STATS_REPLY_BODY);
-
-type SuccessFinalReplyRouteSteps = RouteSteps<RevertedReplyArm, StatsReplyArm>;
-type SuccessFinalReplyArm = SeqSteps<
-    ClusterPolicyHead<
-        LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL,
-        MgmtRouteReplySuccessFinalKind,
-        REPLY_SUCCESS_TAIL_POLICY_ID,
-    >,
-    SuccessFinalReplyRouteSteps,
->;
-type SuccessTailReplyRouteSteps = RouteSteps<ActivatedReplyArm, SuccessFinalReplyArm>;
-type SuccessTailReplyArm = SeqSteps<
-    ClusterPolicyHead<
-        LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL,
-        MgmtRouteReplySuccessTailKind,
-        REPLY_SUCCESS_POLICY_ID,
-    >,
-    SuccessTailReplyRouteSteps,
->;
-type SuccessReplyRouteSteps = RouteSteps<LoadedReplyArm, SuccessTailReplyArm>;
-type SuccessReplyArm = SeqSteps<
-    ClusterPolicyHead<
-        LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY,
-        MgmtRouteReplySuccessFamilyKind,
-        REPLY_ROOT_POLICY_ID,
-    >,
-    SuccessReplyRouteSteps,
->;
-type ReplyRouteSteps = RouteSteps<ErrorReplyArm, SuccessReplyArm>;
-pub type ProgramSteps = SeqSteps<RequestRouteSteps, ReplyRouteSteps>;
-
-const SUCCESS_FINAL_REPLY_HEAD: Program<
-    ClusterPolicyHead<
-        LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL,
-        MgmtRouteReplySuccessFinalKind,
-        REPLY_SUCCESS_TAIL_POLICY_ID,
-    >,
-> = g::send::<
-    g::Role<ROLE_CLUSTER>,
-    g::Role<ROLE_CLUSTER>,
-    RouteMsg<LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL, MgmtRouteReplySuccessFinalKind>,
-    0,
->()
-.policy::<REPLY_SUCCESS_TAIL_POLICY_ID>();
-
-const SUCCESS_TAIL_REPLY_HEAD: Program<
-    ClusterPolicyHead<
-        LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL,
-        MgmtRouteReplySuccessTailKind,
-        REPLY_SUCCESS_POLICY_ID,
-    >,
-> = g::send::<
-    g::Role<ROLE_CLUSTER>,
-    g::Role<ROLE_CLUSTER>,
-    RouteMsg<LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL, MgmtRouteReplySuccessTailKind>,
-    0,
->()
-.policy::<REPLY_SUCCESS_POLICY_ID>();
-
-const SUCCESS_REPLY_HEAD: Program<
-    ClusterPolicyHead<
-        LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY,
-        MgmtRouteReplySuccessFamilyKind,
-        REPLY_ROOT_POLICY_ID,
-    >,
-> = g::send::<
-    g::Role<ROLE_CLUSTER>,
-    g::Role<ROLE_CLUSTER>,
-    RouteMsg<LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY, MgmtRouteReplySuccessFamilyKind>,
-    0,
->()
-.policy::<REPLY_ROOT_POLICY_ID>();
-
-const SUCCESS_FINAL_REPLY_ROUTE: Program<SuccessFinalReplyRouteSteps> =
-    g::route(REVERTED_REPLY, STATS_REPLY);
-const SUCCESS_FINAL_REPLY_FAMILY: Program<SuccessFinalReplyArm> =
-    g::seq(SUCCESS_FINAL_REPLY_HEAD, SUCCESS_FINAL_REPLY_ROUTE);
-const SUCCESS_TAIL_REPLY_ROUTE: Program<SuccessTailReplyRouteSteps> =
-    g::route(ACTIVATED_REPLY, SUCCESS_FINAL_REPLY_FAMILY);
-const SUCCESS_TAIL_REPLY_FAMILY: Program<SuccessTailReplyArm> =
-    g::seq(SUCCESS_TAIL_REPLY_HEAD, SUCCESS_TAIL_REPLY_ROUTE);
-const SUCCESS_REPLY_ROUTE: Program<SuccessReplyRouteSteps> =
-    g::route(LOADED_REPLY, SUCCESS_TAIL_REPLY_FAMILY);
-const SUCCESS_REPLY_FAMILY: Program<SuccessReplyArm> =
-    g::seq(SUCCESS_REPLY_HEAD, SUCCESS_REPLY_ROUTE);
-const REPLY_ROUTE: Program<ReplyRouteSteps> = g::route(ERROR_REPLY, SUCCESS_REPLY_FAMILY);
-
-pub const PROGRAM: Program<ProgramSteps> = g::seq(REQUEST_ROUTE, REPLY_ROUTE);
+#[allow(private_bounds)]
+pub fn attach_cluster<'r, 'cfg, T, U, C, const MAX_RV: usize>(
+    kit: &'r SessionKit<'cfg, T, U, C, MAX_RV>,
+    rv: RendezvousId,
+    sid: SessionId,
+) -> Result<hibana::Endpoint<'r, ROLE_CLUSTER>, AttachError>
+where
+    T: Transport + 'cfg,
+    U: LabelUniverse + 'cfg,
+    C: Clock + 'cfg,
+    'cfg: 'r,
+{
+    let program = cluster_program();
+    kit.enter(rv, sid, &program, NoBinding)
+}

@@ -1,12 +1,12 @@
 use hibana::{
-    g::advanced::{
-        CanonicalControl,
-        steps::{self, PolicySteps, RouteSteps, SeqSteps, StepCons, StepNil},
-    },
-    g::{self, Program},
+    g::advanced::{CanonicalControl, RoleProgram, project},
+    g::{self},
     substrate::{
+        AttachError, RendezvousId, SessionId, SessionKit, Transport,
+        binding::NoBinding,
         cap::GenericCapToken,
         cap::advanced::{LoopBreakKind, LoopContinueKind},
+        runtime::{Clock, LabelUniverse},
         tap::TapEvent,
         wire::{CodecError, Payload, WireEncode, WirePayload},
     },
@@ -142,25 +142,15 @@ impl WirePayload for TapBatch {
     }
 }
 
-const STREAM_SUBSCRIBE: Program<
-    StepCons<
-        steps::SendStep<
-            g::Role<ROLE_CONTROLLER>,
-            g::Role<ROLE_CLUSTER>,
-            g::Msg<LABEL_OBSERVE_SUBSCRIBE, SubscribeReq>,
-        >,
-        StepNil,
-    >,
-> = g::send::<
-    g::Role<ROLE_CONTROLLER>,
-    g::Role<ROLE_CLUSTER>,
-    g::Msg<LABEL_OBSERVE_SUBSCRIBE, SubscribeReq>,
-    0,
->();
-
-type StreamLoopContinueHead = PolicySteps<
-    StepCons<
-        steps::SendStep<
+fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
+    let stream_subscribe = g::send::<
+        g::Role<ROLE_CONTROLLER>,
+        g::Role<ROLE_CLUSTER>,
+        g::Msg<LABEL_OBSERVE_SUBSCRIBE, SubscribeReq>,
+        0,
+    >();
+    let stream_loop_continue_arm = g::seq(
+        g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
             g::Msg<
@@ -168,14 +158,18 @@ type StreamLoopContinueHead = PolicySteps<
                 GenericCapToken<LoopContinueKind>,
                 CanonicalControl<LoopContinueKind>,
             >,
-        >,
-        StepNil,
-    >,
-    STREAM_LOOP_POLICY_ID,
->;
-type StreamLoopBreakHead = PolicySteps<
-    StepCons<
-        steps::SendStep<
+            0,
+        >()
+        .policy::<STREAM_LOOP_POLICY_ID>(),
+        g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CONTROLLER>,
+            g::Msg<LABEL_OBSERVE_BATCH, TapBatch>,
+            0,
+        >(),
+    );
+    let stream_loop_break_arm = g::seq(
+        g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
             g::Msg<
@@ -183,88 +177,105 @@ type StreamLoopBreakHead = PolicySteps<
                 GenericCapToken<LoopBreakKind>,
                 CanonicalControl<LoopBreakKind>,
             >,
-        >,
-        StepNil,
-    >,
-    STREAM_LOOP_POLICY_ID,
->;
-type StreamLoopContinueArm = SeqSteps<
-    StreamLoopContinueHead,
-    StepCons<
-        steps::SendStep<
-            g::Role<ROLE_CLUSTER>,
-            g::Role<ROLE_CONTROLLER>,
-            g::Msg<LABEL_OBSERVE_BATCH, TapBatch>,
-        >,
-        StepNil,
-    >,
->;
-type StreamLoopBreakArm = SeqSteps<
-    StreamLoopBreakHead,
-    StepCons<
-        steps::SendStep<
+            0,
+        >()
+        .policy::<STREAM_LOOP_POLICY_ID>(),
+        g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CONTROLLER>,
             g::Msg<LABEL_OBSERVE_STREAM_END, ()>,
-        >,
-        StepNil,
-    >,
->;
-type StreamLoopRoute = RouteSteps<StreamLoopContinueArm, StreamLoopBreakArm>;
+            0,
+        >(),
+    );
+    let program = g::seq(
+        stream_subscribe,
+        g::route(stream_loop_continue_arm, stream_loop_break_arm),
+    );
+    let projected: RoleProgram<ROLE_CONTROLLER> = project(&program);
+    projected
+}
 
-const STREAM_LOOP_CONTINUE_PREFIX: Program<StreamLoopContinueHead> = g::send::<
-    g::Role<ROLE_CLUSTER>,
-    g::Role<ROLE_CLUSTER>,
-    g::Msg<
-        LABEL_LOOP_CONTINUE,
-        GenericCapToken<LoopContinueKind>,
-        CanonicalControl<LoopContinueKind>,
-    >,
-    0,
->()
-.policy::<STREAM_LOOP_POLICY_ID>();
-
-const STREAM_LOOP_CONTINUE_ARM: Program<StreamLoopContinueArm> = g::seq(
-    STREAM_LOOP_CONTINUE_PREFIX,
-    g::send::<
-        g::Role<ROLE_CLUSTER>,
+fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
+    let stream_subscribe = g::send::<
         g::Role<ROLE_CONTROLLER>,
-        g::Msg<LABEL_OBSERVE_BATCH, TapBatch>,
-        0,
-    >(),
-);
-
-const STREAM_LOOP_BREAK_PREFIX: Program<StreamLoopBreakHead> = g::send::<
-    g::Role<ROLE_CLUSTER>,
-    g::Role<ROLE_CLUSTER>,
-    g::Msg<LABEL_LOOP_BREAK, GenericCapToken<LoopBreakKind>, CanonicalControl<LoopBreakKind>>,
-    0,
->()
-.policy::<STREAM_LOOP_POLICY_ID>();
-
-const STREAM_LOOP_BREAK_ARM: Program<StreamLoopBreakArm> = g::seq(
-    STREAM_LOOP_BREAK_PREFIX,
-    g::send::<
         g::Role<ROLE_CLUSTER>,
-        g::Role<ROLE_CONTROLLER>,
-        g::Msg<LABEL_OBSERVE_STREAM_END, ()>,
+        g::Msg<LABEL_OBSERVE_SUBSCRIBE, SubscribeReq>,
         0,
-    >(),
-);
-
-const STREAM_LOOP_ROUTE: Program<StreamLoopRoute> =
-    g::route(STREAM_LOOP_CONTINUE_ARM, STREAM_LOOP_BREAK_ARM);
-
-pub type ProgramSteps = SeqSteps<
-    StepCons<
-        steps::SendStep<
-            g::Role<ROLE_CONTROLLER>,
+    >();
+    let stream_loop_continue_arm = g::seq(
+        g::send::<
             g::Role<ROLE_CLUSTER>,
-            g::Msg<LABEL_OBSERVE_SUBSCRIBE, SubscribeReq>,
-        >,
-        StepNil,
-    >,
-    StreamLoopRoute,
->;
+            g::Role<ROLE_CLUSTER>,
+            g::Msg<
+                LABEL_LOOP_CONTINUE,
+                GenericCapToken<LoopContinueKind>,
+                CanonicalControl<LoopContinueKind>,
+            >,
+            0,
+        >()
+        .policy::<STREAM_LOOP_POLICY_ID>(),
+        g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CONTROLLER>,
+            g::Msg<LABEL_OBSERVE_BATCH, TapBatch>,
+            0,
+        >(),
+    );
+    let stream_loop_break_arm = g::seq(
+        g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CLUSTER>,
+            g::Msg<
+                LABEL_LOOP_BREAK,
+                GenericCapToken<LoopBreakKind>,
+                CanonicalControl<LoopBreakKind>,
+            >,
+            0,
+        >()
+        .policy::<STREAM_LOOP_POLICY_ID>(),
+        g::send::<
+            g::Role<ROLE_CLUSTER>,
+            g::Role<ROLE_CONTROLLER>,
+            g::Msg<LABEL_OBSERVE_STREAM_END, ()>,
+            0,
+        >(),
+    );
+    let program = g::seq(
+        stream_subscribe,
+        g::route(stream_loop_continue_arm, stream_loop_break_arm),
+    );
+    let projected: RoleProgram<ROLE_CLUSTER> = project(&program);
+    projected
+}
 
-pub const PROGRAM: Program<ProgramSteps> = g::seq(STREAM_SUBSCRIBE, STREAM_LOOP_ROUTE);
+#[allow(private_bounds)]
+pub fn attach_controller<'r, 'cfg, T, U, C, const MAX_RV: usize>(
+    kit: &'r SessionKit<'cfg, T, U, C, MAX_RV>,
+    rv: RendezvousId,
+    sid: SessionId,
+) -> Result<hibana::Endpoint<'r, ROLE_CONTROLLER>, AttachError>
+where
+    T: Transport + 'cfg,
+    U: LabelUniverse + 'cfg,
+    C: Clock + 'cfg,
+    'cfg: 'r,
+{
+    let program = controller_program();
+    kit.enter(rv, sid, &program, NoBinding)
+}
+
+#[allow(private_bounds)]
+pub fn attach_cluster<'r, 'cfg, T, U, C, const MAX_RV: usize>(
+    kit: &'r SessionKit<'cfg, T, U, C, MAX_RV>,
+    rv: RendezvousId,
+    sid: SessionId,
+) -> Result<hibana::Endpoint<'r, ROLE_CLUSTER>, AttachError>
+where
+    T: Transport + 'cfg,
+    U: LabelUniverse + 'cfg,
+    C: Clock + 'cfg,
+    'cfg: 'r,
+{
+    let program = cluster_program();
+    kit.enter(rv, sid, &program, NoBinding)
+}

@@ -1,43 +1,59 @@
 #![cfg(feature = "std")]
 
-use hibana::{
-    g,
-    g::advanced::{
-        project,
-        steps::{SendStep, SeqSteps, StepCons, StepNil},
-    },
-    substrate::{cap::advanced::MintConfig, policy::PolicySlot},
-};
-use hibana_mgmt::{LoadRequest, ROLE_CLUSTER, ROLE_CONTROLLER, Request, request_reply};
+use std::fs;
+use std::path::PathBuf;
 
-type AppSteps =
-    StepCons<SendStep<g::Role<ROLE_CONTROLLER>, g::Role<ROLE_CLUSTER>, g::Msg<120, u32>>, StepNil>;
-type ProgramSteps = SeqSteps<request_reply::ProgramSteps, AppSteps>;
+use hibana::substrate::policy::PolicySlot;
+use hibana_mgmt::{LoadRequest, Request};
 
-const APP: g::Program<AppSteps> =
-    g::send::<g::Role<ROLE_CONTROLLER>, g::Role<ROLE_CLUSTER>, g::Msg<120, u32>, 0>();
-const PROGRAM: g::Program<ProgramSteps> = g::seq(request_reply::PROGRAM, APP);
+fn read(path: &str) -> String {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let full = root.join(path);
+    fs::read_to_string(&full)
+        .unwrap_or_else(|err| panic!("read {} failed: {}", full.display(), err))
+}
 
 #[test]
-fn request_reply_program_projects_from_standalone_repo() {
-    let prefix = request_reply::PROGRAM;
-    let _controller: hibana::g::advanced::RoleProgram<'_, ROLE_CONTROLLER, MintConfig> =
-        project(&prefix);
-    let _cluster: hibana::g::advanced::RoleProgram<'_, ROLE_CLUSTER, MintConfig> = project(&prefix);
+fn request_reply_surface_uses_attach_helpers_not_raw_program_exports() {
+    let src = read("src/request_reply.rs");
 
+    assert!(
+        src.contains("pub fn attach_controller") && src.contains("pub fn attach_cluster"),
+        "request_reply surface must expose attach helpers"
+    );
+
+    for forbidden in [
+        "pub const PROGRAM",
+        "pub const PREFIX",
+        "g::advanced::steps",
+        "const APP: g::Program<_>",
+        "static APP: g::Program<_>",
+        "const PROGRAM: g::Program<_>",
+        "static PROGRAM: g::Program<_>",
+        "project(&PROGRAM)",
+        "project::<",
+    ] {
+        assert!(
+            !src.contains(forbidden),
+            "request_reply surface must not export raw choreography values: {forbidden}"
+        );
+    }
+
+    let kinds = read("src/control_kinds.rs");
+    for required in ["pub struct LoadBeginKind;", "pub struct LoadCommitKind;"] {
+        assert!(
+            kinds.contains(required),
+            "management kind owner must live in hibana-mgmt: {required}"
+        );
+    }
+}
+
+#[test]
+fn request_reply_payload_surface_stays_available() {
     let _request = Request::LoadAndActivate(LoadRequest {
         slot: PolicySlot::Rendezvous,
         code: &[0x30, 0x03, 0x00, 0x01],
         fuel_max: 64,
         mem_len: 128,
     });
-}
-
-#[test]
-fn request_reply_program_stays_composable_as_prefix() {
-    let program = PROGRAM;
-    let _controller: hibana::g::advanced::RoleProgram<'_, ROLE_CONTROLLER, MintConfig> =
-        project(&program);
-    let _cluster: hibana::g::advanced::RoleProgram<'_, ROLE_CLUSTER, MintConfig> =
-        project(&program);
 }

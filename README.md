@@ -5,8 +5,8 @@ owners that were moved out of `hibana` core.
 
 It exports:
 
-- `request_reply::PROGRAM`
-- `observe_stream::PROGRAM`
+- `request_reply::attach_controller(...)` / `attach_cluster(...)`
+- `observe_stream::attach_controller(...)` / `attach_cluster(...)`
 - management request / reply payload owners
 
 The crate depends on the public `hibana` and `hibana-epf` GitHub repositories
