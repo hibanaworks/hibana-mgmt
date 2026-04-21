@@ -1,83 +1,79 @@
 use hibana::substrate::{
     Lane, SessionId,
     cap::advanced::{
-        CAP_HANDLE_LEN, CapError, CapsMask, ControlHandling, ControlMint, ControlScopeKind,
-        RouteDecisionHandle, RouteDecisionKind, ScopeId, SessionScopedKind,
+        CAP_HANDLE_LEN, CapError, ControlOp, ControlPath, ControlScopeKind, RouteDecisionKind,
+        ScopeId,
     },
     cap::{CapShot, ControlResourceKind, ResourceKind},
 };
 
-const LABEL_MGMT_LOAD_BEGIN: u8 = 40;
-const LABEL_MGMT_LOAD_COMMIT: u8 = 43;
-const LABEL_MGMT_ROUTE_LOAD: u8 = 64;
-const LABEL_MGMT_ROUTE_ACTIVATE: u8 = 65;
-const LABEL_MGMT_ROUTE_REVERT: u8 = 66;
-const LABEL_MGMT_ROUTE_STATS: u8 = 67;
-const LABEL_MGMT_ROUTE_LOAD_FAMILY: u8 = 68;
-const LABEL_MGMT_ROUTE_LOAD_AND_ACTIVATE: u8 = 69;
-const LABEL_MGMT_ROUTE_REPLY_ERROR: u8 = 70;
-const LABEL_MGMT_ROUTE_REPLY_LOADED: u8 = 71;
-const LABEL_MGMT_ROUTE_REPLY_ACTIVATED: u8 = 72;
-const LABEL_MGMT_ROUTE_REPLY_REVERTED: u8 = 73;
-const LABEL_MGMT_ROUTE_REPLY_STATS: u8 = 74;
-const LABEL_MGMT_ROUTE_COMMAND_FAMILY: u8 = 75;
-const LABEL_MGMT_ROUTE_COMMAND_TAIL: u8 = 76;
-const LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY: u8 = 78;
-const LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL: u8 = 79;
-const LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL: u8 = 80;
+const LABEL_MGMT_LOAD_BEGIN: u8 = 110;
+const LABEL_MGMT_LOAD_COMMIT: u8 = 111;
+const LABEL_MGMT_ROUTE_LOAD: u8 = 112;
+const LABEL_MGMT_ROUTE_ACTIVATE: u8 = 113;
+const LABEL_MGMT_ROUTE_REVERT: u8 = 114;
+const LABEL_MGMT_ROUTE_STATS: u8 = 115;
+const LABEL_MGMT_ROUTE_LOAD_FAMILY: u8 = 116;
+const LABEL_MGMT_ROUTE_LOAD_AND_ACTIVATE: u8 = 117;
+const LABEL_MGMT_ROUTE_REPLY_ERROR: u8 = 118;
+const LABEL_MGMT_ROUTE_REPLY_LOADED: u8 = 119;
+const LABEL_MGMT_ROUTE_REPLY_ACTIVATED: u8 = 120;
+const LABEL_MGMT_ROUTE_REPLY_REVERTED: u8 = 121;
+const LABEL_MGMT_ROUTE_REPLY_STATS: u8 = 122;
+const LABEL_MGMT_ROUTE_COMMAND_FAMILY: u8 = 123;
+const LABEL_MGMT_ROUTE_COMMAND_TAIL: u8 = 124;
+const LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY: u8 = 125;
+const LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL: u8 = 126;
+const LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL: u8 = 127;
+
+type MgmtRouteHandle = (u8, u64);
+
+fn encode_route_handle(handle: MgmtRouteHandle) -> [u8; CAP_HANDLE_LEN] {
+    let mut buf = [0u8; CAP_HANDLE_LEN];
+    buf[0] = handle.0;
+    buf[1..9].copy_from_slice(&handle.1.to_le_bytes());
+    buf
+}
+
+fn decode_route_handle(data: [u8; CAP_HANDLE_LEN]) -> MgmtRouteHandle {
+    let mut scope_bytes = [0u8; 8];
+    scope_bytes.copy_from_slice(&data[1..9]);
+    (data[0], u64::from_le_bytes(scope_bytes))
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MgmtRouteKind<const LABEL: u8, const ARM: u8>;
 
 impl<const LABEL: u8, const ARM: u8> ResourceKind for MgmtRouteKind<LABEL, ARM> {
-    type Handle = RouteDecisionHandle;
+    type Handle = MgmtRouteHandle;
     const TAG: u8 = <RouteDecisionKind as ResourceKind>::TAG;
     const NAME: &'static str = "MgmtRoute";
-    const AUTO_MINT_EXTERNAL: bool = false;
 
     fn encode_handle(handle: &Self::Handle) -> [u8; CAP_HANDLE_LEN] {
-        handle.encode()
+        encode_route_handle(*handle)
     }
 
     fn decode_handle(data: [u8; CAP_HANDLE_LEN]) -> Result<Self::Handle, CapError> {
-        RouteDecisionHandle::decode(data)
+        Ok(decode_route_handle(data))
     }
 
     fn zeroize(handle: &mut Self::Handle) {
-        *handle = RouteDecisionHandle::default();
-    }
-
-    fn caps_mask(_handle: &Self::Handle) -> CapsMask {
-        CapsMask::empty()
-    }
-
-    fn scope_id(handle: &Self::Handle) -> Option<ScopeId> {
-        Some(handle.scope)
-    }
-}
-
-impl<const LABEL: u8, const ARM: u8> SessionScopedKind for MgmtRouteKind<LABEL, ARM> {
-    fn handle_for_session(_sid: SessionId, _lane: Lane) -> Self::Handle {
-        RouteDecisionHandle::default()
-    }
-
-    fn shot() -> CapShot {
-        CapShot::One
-    }
-}
-
-impl<const LABEL: u8, const ARM: u8> ControlMint for MgmtRouteKind<LABEL, ARM> {
-    fn mint_handle(_sid: SessionId, _lane: Lane, scope: ScopeId) -> Self::Handle {
-        RouteDecisionHandle { scope, arm: ARM }
+        *handle = (0, 0);
     }
 }
 
 impl<const LABEL: u8, const ARM: u8> ControlResourceKind for MgmtRouteKind<LABEL, ARM> {
     const LABEL: u8 = LABEL;
     const SCOPE: ControlScopeKind = ControlScopeKind::Route;
+    const PATH: ControlPath = ControlPath::Local;
     const TAP_ID: u16 = <RouteDecisionKind as ControlResourceKind>::TAP_ID;
     const SHOT: CapShot = CapShot::One;
-    const HANDLING: ControlHandling = ControlHandling::Canonical;
+    const OP: ControlOp = ControlOp::RouteDecision;
+    const AUTO_MINT_WIRE: bool = false;
+
+    fn mint_handle(_session: SessionId, _lane: Lane, scope: ScopeId) -> Self::Handle {
+        (ARM, scope.raw())
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,7 +83,6 @@ impl ResourceKind for LoadBeginKind {
     type Handle = (u8, u64);
     const TAG: u8 = 0x50;
     const NAME: &'static str = "LoadBegin";
-    const AUTO_MINT_EXTERNAL: bool = false;
 
     fn encode_handle(handle: &Self::Handle) -> [u8; CAP_HANDLE_LEN] {
         let mut buf = [0u8; CAP_HANDLE_LEN];
@@ -104,26 +99,18 @@ impl ResourceKind for LoadBeginKind {
     }
 
     fn zeroize(_handle: &mut Self::Handle) {}
-
-    fn caps_mask(_handle: &Self::Handle) -> CapsMask {
-        CapsMask::empty()
-    }
-
-    fn scope_id(_handle: &Self::Handle) -> Option<ScopeId> {
-        None
-    }
 }
 
 impl ControlResourceKind for LoadBeginKind {
     const LABEL: u8 = LABEL_MGMT_LOAD_BEGIN;
     const SCOPE: ControlScopeKind = ControlScopeKind::Policy;
+    const PATH: ControlPath = ControlPath::Wire;
     const TAP_ID: u16 = 0;
     const SHOT: CapShot = CapShot::One;
-    const HANDLING: ControlHandling = ControlHandling::External;
-}
+    const OP: ControlOp = ControlOp::Fence;
+    const AUTO_MINT_WIRE: bool = false;
 
-impl ControlMint for LoadBeginKind {
-    fn mint_handle(_sid: SessionId, _lane: Lane, _scope: ScopeId) -> Self::Handle {
+    fn mint_handle(_session: SessionId, _lane: Lane, _scope: ScopeId) -> Self::Handle {
         (0, 0)
     }
 }
@@ -135,7 +122,6 @@ impl ResourceKind for LoadCommitKind {
     type Handle = u8;
     const TAG: u8 = 0x51;
     const NAME: &'static str = "LoadCommit";
-    const AUTO_MINT_EXTERNAL: bool = false;
 
     fn encode_handle(handle: &Self::Handle) -> [u8; CAP_HANDLE_LEN] {
         let mut buf = [0u8; CAP_HANDLE_LEN];
@@ -148,26 +134,18 @@ impl ResourceKind for LoadCommitKind {
     }
 
     fn zeroize(_handle: &mut Self::Handle) {}
-
-    fn caps_mask(_handle: &Self::Handle) -> CapsMask {
-        CapsMask::empty()
-    }
-
-    fn scope_id(_handle: &Self::Handle) -> Option<ScopeId> {
-        None
-    }
 }
 
 impl ControlResourceKind for LoadCommitKind {
     const LABEL: u8 = LABEL_MGMT_LOAD_COMMIT;
     const SCOPE: ControlScopeKind = ControlScopeKind::Policy;
+    const PATH: ControlPath = ControlPath::Wire;
     const TAP_ID: u16 = 0;
     const SHOT: CapShot = CapShot::One;
-    const HANDLING: ControlHandling = ControlHandling::External;
-}
+    const OP: ControlOp = ControlOp::TxCommit;
+    const AUTO_MINT_WIRE: bool = false;
 
-impl ControlMint for LoadCommitKind {
-    fn mint_handle(_sid: SessionId, _lane: Lane, _scope: ScopeId) -> Self::Handle {
+    fn mint_handle(_session: SessionId, _lane: Lane, _scope: ScopeId) -> Self::Handle {
         0
     }
 }

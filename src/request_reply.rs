@@ -1,10 +1,10 @@
 use hibana::{
-    g::advanced::{CanonicalControl, ExternalControl, RoleProgram, project},
+    g::advanced::{RoleProgram, project},
     g::{self},
     substrate::{
         AttachError, RendezvousId, SessionId, SessionKit, Transport,
         binding::NoBinding,
-        cap::GenericCapToken,
+        cap::{ControlResourceKind, GenericCapToken},
         runtime::{Clock, LabelUniverse},
     },
 };
@@ -46,57 +46,45 @@ const LABEL_MGMT_REPLY_STATS: u8 = 34;
 const LABEL_MGMT_ACTIVATE: u8 = 35;
 const LABEL_MGMT_REVERT: u8 = 36;
 const LABEL_MGMT_STATS: u8 = 37;
-const LABEL_MGMT_LOAD_BEGIN: u8 = 40;
 const LABEL_MGMT_LOAD_CHUNK: u8 = 42;
-const LABEL_MGMT_LOAD_COMMIT: u8 = 43;
 const LABEL_MGMT_STAGE: u8 = 44;
 const LABEL_MGMT_LOAD_AND_ACTIVATE: u8 = 46;
 const LABEL_MGMT_LOAD_FINAL_CHUNK: u8 = 77;
-const LABEL_MGMT_ROUTE_LOAD: u8 = 64;
-const LABEL_MGMT_ROUTE_ACTIVATE: u8 = 65;
-const LABEL_MGMT_ROUTE_REVERT: u8 = 66;
-const LABEL_MGMT_ROUTE_STATS: u8 = 67;
-const LABEL_MGMT_ROUTE_LOAD_FAMILY: u8 = 68;
-const LABEL_MGMT_ROUTE_LOAD_AND_ACTIVATE: u8 = 69;
-const LABEL_MGMT_ROUTE_REPLY_ERROR: u8 = 70;
-const LABEL_MGMT_ROUTE_REPLY_LOADED: u8 = 71;
-const LABEL_MGMT_ROUTE_REPLY_ACTIVATED: u8 = 72;
-const LABEL_MGMT_ROUTE_REPLY_REVERTED: u8 = 73;
-const LABEL_MGMT_ROUTE_REPLY_STATS: u8 = 74;
-const LABEL_MGMT_ROUTE_COMMAND_FAMILY: u8 = 75;
-const LABEL_MGMT_ROUTE_COMMAND_TAIL: u8 = 76;
-const LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY: u8 = 78;
-const LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL: u8 = 79;
-const LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL: u8 = 80;
+const LABEL_MGMT_ROUTE_LOAD: u8 = 112;
+const LABEL_MGMT_ROUTE_ACTIVATE: u8 = 113;
+const LABEL_MGMT_ROUTE_REVERT: u8 = 114;
+const LABEL_MGMT_ROUTE_STATS: u8 = 115;
+const LABEL_MGMT_ROUTE_LOAD_FAMILY: u8 = 116;
+const LABEL_MGMT_ROUTE_LOAD_AND_ACTIVATE: u8 = 117;
+const LABEL_MGMT_ROUTE_REPLY_ERROR: u8 = 118;
+const LABEL_MGMT_ROUTE_REPLY_LOADED: u8 = 119;
+const LABEL_MGMT_ROUTE_REPLY_ACTIVATED: u8 = 120;
+const LABEL_MGMT_ROUTE_REPLY_REVERTED: u8 = 121;
+const LABEL_MGMT_ROUTE_REPLY_STATS: u8 = 122;
+const LABEL_MGMT_ROUTE_COMMAND_FAMILY: u8 = 123;
+const LABEL_MGMT_ROUTE_COMMAND_TAIL: u8 = 124;
+const LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY: u8 = 125;
+const LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL: u8 = 126;
+const LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL: u8 = 127;
 
-type RouteMsg<const LABEL: u8, Kind> = g::Msg<LABEL, GenericCapToken<Kind>, CanonicalControl<Kind>>;
+type RouteMsg<const LABEL: u8, Kind> = g::Msg<LABEL, GenericCapToken<Kind>, Kind>;
+type LoadBeginControlMsg = g::Msg<
+    { <LoadBeginKind as ControlResourceKind>::LABEL },
+    GenericCapToken<LoadBeginKind>,
+    LoadBeginKind,
+>;
+type LoadCommitControlMsg = g::Msg<
+    { <LoadCommitKind as ControlResourceKind>::LABEL },
+    GenericCapToken<LoadCommitKind>,
+    LoadCommitKind,
+>;
 
 fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
-    let load_begin_token = || {
-        g::send::<
-            g::Role<ROLE_CONTROLLER>,
-            g::Role<ROLE_CLUSTER>,
-            g::Msg<
-                LABEL_MGMT_LOAD_BEGIN,
-                GenericCapToken<LoadBeginKind>,
-                ExternalControl<LoadBeginKind>,
-            >,
-            0,
-        >()
-    };
+    let load_begin_token =
+        || g::send::<g::Role<ROLE_CONTROLLER>, g::Role<ROLE_CLUSTER>, LoadBeginControlMsg, 0>();
 
-    let load_commit_token = || {
-        g::send::<
-            g::Role<ROLE_CONTROLLER>,
-            g::Role<ROLE_CLUSTER>,
-            g::Msg<
-                LABEL_MGMT_LOAD_COMMIT,
-                GenericCapToken<LoadCommitKind>,
-                ExternalControl<LoadCommitKind>,
-            >,
-            0,
-        >()
-    };
+    let load_commit_token =
+        || g::send::<g::Role<ROLE_CONTROLLER>, g::Role<ROLE_CLUSTER>, LoadCommitControlMsg, 0>();
 
     let load_stream_loop = || {
         let continue_arm = g::seq(
@@ -106,7 +94,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
                 g::Msg<
                     LABEL_LOOP_CONTINUE,
                     GenericCapToken<hibana::substrate::cap::advanced::LoopContinueKind>,
-                    CanonicalControl<hibana::substrate::cap::advanced::LoopContinueKind>,
+                    hibana::substrate::cap::advanced::LoopContinueKind,
                 >,
                 0,
             >()
@@ -125,7 +113,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
                 g::Msg<
                     LABEL_LOOP_BREAK,
                     GenericCapToken<hibana::substrate::cap::advanced::LoopBreakKind>,
-                    CanonicalControl<hibana::substrate::cap::advanced::LoopBreakKind>,
+                    hibana::substrate::cap::advanced::LoopBreakKind,
                 >,
                 0,
             >()
@@ -404,31 +392,11 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
 }
 
 fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
-    let load_begin_token = || {
-        g::send::<
-            g::Role<ROLE_CONTROLLER>,
-            g::Role<ROLE_CLUSTER>,
-            g::Msg<
-                LABEL_MGMT_LOAD_BEGIN,
-                GenericCapToken<LoadBeginKind>,
-                ExternalControl<LoadBeginKind>,
-            >,
-            0,
-        >()
-    };
+    let load_begin_token =
+        || g::send::<g::Role<ROLE_CONTROLLER>, g::Role<ROLE_CLUSTER>, LoadBeginControlMsg, 0>();
 
-    let load_commit_token = || {
-        g::send::<
-            g::Role<ROLE_CONTROLLER>,
-            g::Role<ROLE_CLUSTER>,
-            g::Msg<
-                LABEL_MGMT_LOAD_COMMIT,
-                GenericCapToken<LoadCommitKind>,
-                ExternalControl<LoadCommitKind>,
-            >,
-            0,
-        >()
-    };
+    let load_commit_token =
+        || g::send::<g::Role<ROLE_CONTROLLER>, g::Role<ROLE_CLUSTER>, LoadCommitControlMsg, 0>();
 
     let load_stream_loop = || {
         let continue_arm = g::seq(
@@ -438,7 +406,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
                 g::Msg<
                     LABEL_LOOP_CONTINUE,
                     GenericCapToken<hibana::substrate::cap::advanced::LoopContinueKind>,
-                    CanonicalControl<hibana::substrate::cap::advanced::LoopContinueKind>,
+                    hibana::substrate::cap::advanced::LoopContinueKind,
                 >,
                 0,
             >()
@@ -457,7 +425,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
                 g::Msg<
                     LABEL_LOOP_BREAK,
                     GenericCapToken<hibana::substrate::cap::advanced::LoopBreakKind>,
-                    CanonicalControl<hibana::substrate::cap::advanced::LoopBreakKind>,
+                    hibana::substrate::cap::advanced::LoopBreakKind,
                 >,
                 0,
             >()

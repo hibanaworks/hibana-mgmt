@@ -1,5 +1,5 @@
 use hibana::{
-    g::advanced::{CanonicalControl, RoleProgram, project},
+    g::advanced::{RoleProgram, project},
     g::{self},
     substrate::{
         AttachError, RendezvousId, SessionId, SessionKit, Transport,
@@ -153,11 +153,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            g::Msg<
-                LABEL_LOOP_CONTINUE,
-                GenericCapToken<LoopContinueKind>,
-                CanonicalControl<LoopContinueKind>,
-            >,
+            g::Msg<LABEL_LOOP_CONTINUE, GenericCapToken<LoopContinueKind>, LoopContinueKind>,
             0,
         >()
         .policy::<STREAM_LOOP_POLICY_ID>(),
@@ -172,11 +168,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            g::Msg<
-                LABEL_LOOP_BREAK,
-                GenericCapToken<LoopBreakKind>,
-                CanonicalControl<LoopBreakKind>,
-            >,
+            g::Msg<LABEL_LOOP_BREAK, GenericCapToken<LoopBreakKind>, LoopBreakKind>,
             0,
         >()
         .policy::<STREAM_LOOP_POLICY_ID>(),
@@ -206,11 +198,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            g::Msg<
-                LABEL_LOOP_CONTINUE,
-                GenericCapToken<LoopContinueKind>,
-                CanonicalControl<LoopContinueKind>,
-            >,
+            g::Msg<LABEL_LOOP_CONTINUE, GenericCapToken<LoopContinueKind>, LoopContinueKind>,
             0,
         >()
         .policy::<STREAM_LOOP_POLICY_ID>(),
@@ -225,11 +213,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            g::Msg<
-                LABEL_LOOP_BREAK,
-                GenericCapToken<LoopBreakKind>,
-                CanonicalControl<LoopBreakKind>,
-            >,
+            g::Msg<LABEL_LOOP_BREAK, GenericCapToken<LoopBreakKind>, LoopBreakKind>,
             0,
         >()
         .policy::<STREAM_LOOP_POLICY_ID>(),

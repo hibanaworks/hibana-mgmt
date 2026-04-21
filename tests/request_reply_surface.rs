@@ -46,6 +46,21 @@ fn request_reply_surface_uses_attach_helpers_not_raw_program_exports() {
             "management kind owner must live in hibana-mgmt: {required}"
         );
     }
+    for required in [
+        "GenericCapToken<LoadBeginKind>",
+        "GenericCapToken<LoadCommitKind>",
+    ] {
+        assert!(
+            src.contains(required),
+            "request_reply attach path must use control-kind messages: {required}"
+        );
+    }
+    for forbidden in ["Msg<LABEL_MGMT_LOAD_BEGIN,", "Msg<LABEL_MGMT_LOAD_COMMIT,"] {
+        assert!(
+            !src.contains(forbidden),
+            "request_reply attach path must not use the old raw label path: {forbidden}"
+        );
+    }
 }
 
 #[test]
