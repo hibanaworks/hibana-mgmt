@@ -25,6 +25,8 @@ const LABEL_MGMT_ROUTE_COMMAND_TAIL: u8 = 124;
 const LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY: u8 = 125;
 const LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL: u8 = 126;
 const LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL: u8 = 127;
+const TAP_MGMT_LOAD_BEGIN: u16 = 0x0300 + LABEL_MGMT_LOAD_BEGIN as u16;
+const TAP_MGMT_LOAD_COMMIT: u16 = 0x0300 + LABEL_MGMT_LOAD_COMMIT as u16;
 
 type MgmtRouteHandle = (u8, u64);
 
@@ -105,7 +107,7 @@ impl ControlResourceKind for LoadBeginKind {
     const LABEL: u8 = LABEL_MGMT_LOAD_BEGIN;
     const SCOPE: ControlScopeKind = ControlScopeKind::Policy;
     const PATH: ControlPath = ControlPath::Wire;
-    const TAP_ID: u16 = 0;
+    const TAP_ID: u16 = TAP_MGMT_LOAD_BEGIN;
     const SHOT: CapShot = CapShot::One;
     const OP: ControlOp = ControlOp::Fence;
     const AUTO_MINT_WIRE: bool = false;
@@ -140,7 +142,7 @@ impl ControlResourceKind for LoadCommitKind {
     const LABEL: u8 = LABEL_MGMT_LOAD_COMMIT;
     const SCOPE: ControlScopeKind = ControlScopeKind::Policy;
     const PATH: ControlPath = ControlPath::Wire;
-    const TAP_ID: u16 = 0;
+    const TAP_ID: u16 = TAP_MGMT_LOAD_COMMIT;
     const SHOT: CapShot = CapShot::One;
     const OP: ControlOp = ControlOp::TxCommit;
     const AUTO_MINT_WIRE: bool = false;
