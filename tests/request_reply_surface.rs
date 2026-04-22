@@ -72,3 +72,20 @@ fn request_reply_payload_surface_stays_available() {
         mem_len: 128,
     });
 }
+
+#[test]
+fn dependency_surface_uses_exact_git_revs_with_local_overlay_config() {
+    let cargo_toml = read("Cargo.toml");
+    let cargo_config = read(".cargo/config.toml");
+
+    assert!(cargo_toml.contains("git = \"https://github.com/hibanaworks/hibana\""));
+    assert!(cargo_toml.contains("git = \"https://github.com/hibanaworks/hibana-epf\""));
+    assert!(cargo_toml.contains("rev = \""));
+    assert!(!cargo_toml.contains("path = \"../hibana\""));
+    assert!(!cargo_toml.contains("path = \"../hibana-epf\""));
+
+    assert!(cargo_config.contains("[patch.\"https://github.com/hibanaworks/hibana\"]"));
+    assert!(cargo_config.contains("[patch.\"https://github.com/hibanaworks/hibana-epf\"]"));
+    assert!(cargo_config.contains("hibana = { path = \"../hibana\" }"));
+    assert!(cargo_config.contains("hibana-epf = { path = \"../hibana-epf\" }"));
+}
