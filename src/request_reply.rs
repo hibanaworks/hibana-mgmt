@@ -102,7 +102,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
             g::send::<
                 g::Role<ROLE_CONTROLLER>,
                 g::Role<ROLE_CLUSTER>,
-                g::Msg<LABEL_MGMT_LOAD_CHUNK, LoadChunk>,
+                g::Msg<LABEL_MGMT_LOAD_CHUNK, LoadChunk<'static>>,
                 0,
             >(),
         );
@@ -121,7 +121,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
             g::send::<
                 g::Role<ROLE_CONTROLLER>,
                 g::Role<ROLE_CLUSTER>,
-                g::Msg<LABEL_MGMT_LOAD_FINAL_CHUNK, LoadChunk>,
+                g::Msg<LABEL_MGMT_LOAD_FINAL_CHUNK, LoadChunk<'static>>,
                 0,
             >(),
         );
@@ -414,7 +414,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
             g::send::<
                 g::Role<ROLE_CONTROLLER>,
                 g::Role<ROLE_CLUSTER>,
-                g::Msg<LABEL_MGMT_LOAD_CHUNK, LoadChunk>,
+                g::Msg<LABEL_MGMT_LOAD_CHUNK, LoadChunk<'static>>,
                 0,
             >(),
         );
@@ -433,7 +433,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
             g::send::<
                 g::Role<ROLE_CONTROLLER>,
                 g::Role<ROLE_CLUSTER>,
-                g::Msg<LABEL_MGMT_LOAD_FINAL_CHUNK, LoadChunk>,
+                g::Msg<LABEL_MGMT_LOAD_FINAL_CHUNK, LoadChunk<'static>>,
                 0,
             >(),
         );

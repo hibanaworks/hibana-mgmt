@@ -3,8 +3,11 @@
 use std::fs;
 use std::path::PathBuf;
 
-use hibana::substrate::policy::PolicySlot;
-use hibana_mgmt::{LoadRequest, Request};
+use hibana::substrate::{
+    policy::PolicySlot,
+    wire::{Payload, WireEncode, WirePayload},
+};
+use hibana_mgmt::{LoadChunk, LoadRequest, Request};
 
 fn read(path: &str) -> String {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -74,18 +77,70 @@ fn request_reply_payload_surface_stays_available() {
 }
 
 #[test]
-fn dependency_surface_uses_exact_git_revs_with_local_overlay_config() {
+fn load_chunk_decode_is_borrowed_not_fixed_buffer_copy() {
+    let mut encoded = [0u8; 16];
+    let chunk = LoadChunk::new(7, &[1, 2, 3, 4]);
+    let len = chunk.encode_into(&mut encoded).expect("encode load chunk");
+    let decoded =
+        <LoadChunk<'static> as WirePayload>::decode_payload(Payload::new(&encoded[..len]))
+            .expect("decode load chunk");
+
+    assert_eq!(decoded.offset, 7);
+    assert_eq!(decoded.len(), 4);
+    assert_eq!(decoded.bytes(), &[1, 2, 3, 4]);
+
+    let payload = read("src/payload.rs");
+    assert!(
+        !payload.contains("pub bytes: [u8; LOAD_CHUNK_MAX]"),
+        "LoadChunk must not expose or decode into a fixed 1KB public buffer"
+    );
+    assert!(
+        !payload.contains("let mut bytes = [0u8; LOAD_CHUNK_MAX]"),
+        "LoadChunk decode must not materialize a fixed 1KB stack buffer"
+    );
+    assert!(
+        payload.contains("type Decoded<'a> = LoadChunk<'a>"),
+        "LoadChunk wire decode must return a borrowed chunk view"
+    );
+}
+
+#[test]
+fn policy_lifecycle_vocabulary_uses_revert_not_restore() {
+    for path in [
+        "src/payload.rs",
+        "src/control_kinds.rs",
+        "src/request_reply.rs",
+    ] {
+        let src = read(path);
+        for forbidden in [
+            "Restore",
+            "Restored",
+            "restore",
+            "restored",
+            "restores",
+            "last_restore",
+        ] {
+            assert!(
+                !src.contains(forbidden),
+                "management lifecycle vocabulary must stay on revert: {path}: {forbidden}"
+            );
+        }
+    }
+
+    let payload = read("src/payload.rs");
+    assert!(payload.contains("Revert(SlotRequest)"));
+    assert!(payload.contains("Reverted(TransitionReport)"));
+}
+
+#[test]
+fn dependency_surface_uses_local_sibling_path_dependencies() {
     let cargo_toml = read("Cargo.toml");
-    let cargo_config = read(".cargo/config.toml");
+    let cargo_config = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".cargo/config.toml");
 
-    assert!(cargo_toml.contains("git = \"https://github.com/hibanaworks/hibana\""));
-    assert!(cargo_toml.contains("git = \"https://github.com/hibanaworks/hibana-epf\""));
-    assert!(cargo_toml.contains("rev = \""));
-    assert!(!cargo_toml.contains("path = \"../hibana\""));
-    assert!(!cargo_toml.contains("path = \"../hibana-epf\""));
-
-    assert!(cargo_config.contains("[patch.\"https://github.com/hibanaworks/hibana\"]"));
-    assert!(cargo_config.contains("[patch.\"https://github.com/hibanaworks/hibana-epf\"]"));
-    assert!(cargo_config.contains("hibana = { path = \"../hibana\" }"));
-    assert!(cargo_config.contains("hibana-epf = { path = \"../hibana-epf\" }"));
+    assert!(cargo_toml.contains("hibana = { path = \"../hibana\""));
+    assert!(cargo_toml.contains("hibana-epf = { path = \"../hibana-epf\""));
+    assert!(!cargo_toml.contains("git = \"https://github.com/hibanaworks/hibana\""));
+    assert!(!cargo_toml.contains("git = \"https://github.com/hibanaworks/hibana-epf\""));
+    assert!(!cargo_toml.contains("rev = \""));
+    assert!(!cargo_config.exists());
 }

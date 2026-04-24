@@ -9,11 +9,6 @@ It exports:
 - `observe_stream::attach_controller(...)` / `attach_cluster(...)`
 - management request / reply payload owners
 
-The crate depends on the public `hibana` and `hibana-epf` GitHub repositories
-at immutable revisions rather than filesystem path dependencies. Downstreams
-should consume the same immutable GitHub revision boundary or coordinated
-release tags, not restore path-based manifests.
-
-For local sibling development, this repository keeps the checkout overlay in
-repo-local `.cargo/config.toml` so the published manifest can stay publicly
-resolvable while contributors still test against `../hibana` and `../hibana-epf`.
+The crate depends on the sibling `hibana` and `hibana-epf` checkouts through
+explicit local path dependencies. Coordinated development runs against the
+current worktrees with no separate git-rev lane and no repo-local patch shim.

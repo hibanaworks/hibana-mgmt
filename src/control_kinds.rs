@@ -82,22 +82,18 @@ impl<const LABEL: u8, const ARM: u8> ControlResourceKind for MgmtRouteKind<LABEL
 pub struct LoadBeginKind;
 
 impl ResourceKind for LoadBeginKind {
-    type Handle = (u8, u64);
+    type Handle = ();
     const TAG: u8 = 0x50;
     const NAME: &'static str = "LoadBegin";
 
     fn encode_handle(handle: &Self::Handle) -> [u8; CAP_HANDLE_LEN] {
-        let mut buf = [0u8; CAP_HANDLE_LEN];
-        buf[0] = handle.0;
-        buf[1..6].copy_from_slice(&handle.1.to_le_bytes()[0..5]);
-        buf
+        let _ = handle;
+        [0u8; CAP_HANDLE_LEN]
     }
 
     fn decode_handle(data: [u8; CAP_HANDLE_LEN]) -> Result<Self::Handle, CapError> {
-        let slot = data[0];
-        let mut hash_bytes = [0u8; 8];
-        hash_bytes[0..5].copy_from_slice(&data[1..6]);
-        Ok((slot, u64::from_le_bytes(hash_bytes)))
+        let _ = data;
+        Ok(())
     }
 
     fn zeroize(_handle: &mut Self::Handle) {}
@@ -110,10 +106,10 @@ impl ControlResourceKind for LoadBeginKind {
     const TAP_ID: u16 = TAP_MGMT_LOAD_BEGIN;
     const SHOT: CapShot = CapShot::One;
     const OP: ControlOp = ControlOp::Fence;
-    const AUTO_MINT_WIRE: bool = false;
+    const AUTO_MINT_WIRE: bool = true;
 
     fn mint_handle(_session: SessionId, _lane: Lane, _scope: ScopeId) -> Self::Handle {
-        (0, 0)
+        ()
     }
 }
 
@@ -121,18 +117,22 @@ impl ControlResourceKind for LoadBeginKind {
 pub struct LoadCommitKind;
 
 impl ResourceKind for LoadCommitKind {
-    type Handle = u8;
+    type Handle = (u32, u16);
     const TAG: u8 = 0x51;
     const NAME: &'static str = "LoadCommit";
 
     fn encode_handle(handle: &Self::Handle) -> [u8; CAP_HANDLE_LEN] {
         let mut buf = [0u8; CAP_HANDLE_LEN];
-        buf[0] = *handle;
+        buf[0..4].copy_from_slice(&handle.0.to_le_bytes());
+        buf[4..6].copy_from_slice(&handle.1.to_le_bytes());
         buf
     }
 
     fn decode_handle(data: [u8; CAP_HANDLE_LEN]) -> Result<Self::Handle, CapError> {
-        Ok(data[0])
+        Ok((
+            u32::from_le_bytes([data[0], data[1], data[2], data[3]]),
+            u16::from_le_bytes([data[4], data[5]]),
+        ))
     }
 
     fn zeroize(_handle: &mut Self::Handle) {}
@@ -145,10 +145,10 @@ impl ControlResourceKind for LoadCommitKind {
     const TAP_ID: u16 = TAP_MGMT_LOAD_COMMIT;
     const SHOT: CapShot = CapShot::One;
     const OP: ControlOp = ControlOp::TxCommit;
-    const AUTO_MINT_WIRE: bool = false;
+    const AUTO_MINT_WIRE: bool = true;
 
-    fn mint_handle(_session: SessionId, _lane: Lane, _scope: ScopeId) -> Self::Handle {
-        0
+    fn mint_handle(session: SessionId, lane: Lane, _scope: ScopeId) -> Self::Handle {
+        (session.raw(), lane.raw() as u16)
     }
 }
 

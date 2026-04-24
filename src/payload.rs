@@ -239,9 +239,9 @@ pub struct PolicyStats {
     pub effects: u32,
     pub effects_ok: u32,
     pub commits: u32,
-    pub rollbacks: u32,
+    pub reverts: u32,
     pub last_commit: Option<u32>,
-    pub last_rollback: Option<u32>,
+    pub last_revert: Option<u32>,
 }
 
 /// Payload carried by the `LoadBegin` message.
@@ -254,32 +254,33 @@ pub struct LoadBegin {
     pub hash: u32,
 }
 
-/// Payload for `LoadChunk`; the chunk body lives in a fixed-size buffer.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LoadChunk {
+/// Payload for `LoadChunk`; the chunk body is a borrowed wire view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LoadChunk<'a> {
     pub offset: u32,
-    pub len: u16,
-    pub bytes: [u8; LOAD_CHUNK_MAX],
+    bytes: &'a [u8],
 }
 
-impl LoadChunk {
-    pub fn new(offset: u32, chunk: &[u8]) -> Self {
+impl<'a> LoadChunk<'a> {
+    pub fn new(offset: u32, chunk: &'a [u8]) -> Self {
         assert!(
             chunk.len() <= LOAD_CHUNK_MAX,
             "chunk length exceeds management chunk capacity"
         );
-        let mut bytes = [0u8; LOAD_CHUNK_MAX];
-        bytes[..chunk.len()].copy_from_slice(chunk);
         Self {
             offset,
-            len: chunk.len() as u16,
-            bytes,
+            bytes: chunk,
         }
     }
 
     #[inline]
+    pub fn len(&self) -> u16 {
+        self.bytes.len() as u16
+    }
+
+    #[inline]
     pub fn bytes(&self) -> &[u8] {
-        &self.bytes[..self.len as usize]
+        self.bytes
     }
 }
 
@@ -365,11 +366,11 @@ impl WireEncode for PolicyStats {
         out[12..16].copy_from_slice(&self.effects.to_be_bytes());
         out[16..20].copy_from_slice(&self.effects_ok.to_be_bytes());
         out[20..24].copy_from_slice(&self.commits.to_be_bytes());
-        out[24..28].copy_from_slice(&self.rollbacks.to_be_bytes());
+        out[24..28].copy_from_slice(&self.reverts.to_be_bytes());
         out[28..32].copy_from_slice(&self.last_commit.unwrap_or(0).to_be_bytes());
         out[32] = u8::from(self.last_commit.is_some());
-        out[33..37].copy_from_slice(&self.last_rollback.unwrap_or(0).to_be_bytes());
-        out[37] = u8::from(self.last_rollback.is_some());
+        out[33..37].copy_from_slice(&self.last_revert.unwrap_or(0).to_be_bytes());
+        out[37] = u8::from(self.last_revert.is_some());
         Ok(38)
     }
 }
@@ -383,7 +384,7 @@ impl WirePayload for PolicyStats {
             return Err(CodecError::Truncated);
         }
         let last_commit = u32::from_be_bytes([input[28], input[29], input[30], input[31]]);
-        let last_rollback = u32::from_be_bytes([input[33], input[34], input[35], input[36]]);
+        let last_revert = u32::from_be_bytes([input[33], input[34], input[35], input[36]]);
         Ok(PolicyStats {
             aborts: u32::from_be_bytes([input[0], input[1], input[2], input[3]]),
             traps: u32::from_be_bytes([input[4], input[5], input[6], input[7]]),
@@ -391,16 +392,16 @@ impl WirePayload for PolicyStats {
             effects: u32::from_be_bytes([input[12], input[13], input[14], input[15]]),
             effects_ok: u32::from_be_bytes([input[16], input[17], input[18], input[19]]),
             commits: u32::from_be_bytes([input[20], input[21], input[22], input[23]]),
-            rollbacks: u32::from_be_bytes([input[24], input[25], input[26], input[27]]),
+            reverts: u32::from_be_bytes([input[24], input[25], input[26], input[27]]),
             last_commit: if input[32] == 0 {
                 None
             } else {
                 Some(last_commit)
             },
-            last_rollback: if input[37] == 0 {
+            last_revert: if input[37] == 0 {
                 None
             } else {
-                Some(last_rollback)
+                Some(last_revert)
             },
         })
     }
@@ -544,13 +545,13 @@ impl WirePayload for LoadBegin {
     }
 }
 
-impl WireEncode for LoadChunk {
+impl WireEncode for LoadChunk<'_> {
     fn encoded_len(&self) -> Option<usize> {
-        Some(6 + self.len as usize)
+        Some(6 + self.bytes.len())
     }
 
     fn encode_into(&self, out: &mut [u8]) -> Result<usize, CodecError> {
-        let len = self.len as usize;
+        let len = self.bytes.len();
         if len > LOAD_CHUNK_MAX {
             return Err(CodecError::Invalid("chunk length exceeds LOAD_CHUNK_MAX"));
         }
@@ -559,14 +560,14 @@ impl WireEncode for LoadChunk {
             return Err(CodecError::Truncated);
         }
         out[..4].copy_from_slice(&self.offset.to_be_bytes());
-        out[4..6].copy_from_slice(&self.len.to_be_bytes());
-        out[6..total].copy_from_slice(&self.bytes[..len]);
+        out[4..6].copy_from_slice(&(len as u16).to_be_bytes());
+        out[6..total].copy_from_slice(self.bytes);
         Ok(total)
     }
 }
 
-impl WirePayload for LoadChunk {
-    type Decoded<'a> = Self;
+impl WirePayload for LoadChunk<'static> {
+    type Decoded<'a> = LoadChunk<'a>;
 
     fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
         let input = input.as_bytes();
@@ -582,9 +583,10 @@ impl WirePayload for LoadChunk {
         if input.len() < 6 + len_usize {
             return Err(CodecError::Truncated);
         }
-        let mut bytes = [0u8; LOAD_CHUNK_MAX];
-        bytes[..len_usize].copy_from_slice(&input[6..6 + len_usize]);
-        Ok(LoadChunk { offset, len, bytes })
+        Ok(LoadChunk {
+            offset,
+            bytes: &input[6..6 + len_usize],
+        })
     }
 }
 
