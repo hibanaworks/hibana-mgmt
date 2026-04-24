@@ -1,7 +1,4 @@
-use hibana::{
-    substrate::policy::PolicySlot,
-    substrate::wire::{CodecError, Payload, WireEncode, WirePayload},
-};
+use hibana::substrate::wire::{CodecError, Payload, WireEncode, WirePayload};
 
 use hibana_epf::{host::HostError, loader::LoaderError, verifier::VerifyError};
 
@@ -202,7 +199,7 @@ pub struct StatsReply {
 /// Request payload for code upload branches.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LoadRequest<'a> {
-    pub slot: PolicySlot,
+    pub target: PolicyTarget,
     pub code: &'a [u8],
     pub fuel_max: u16,
     pub mem_len: u16,
@@ -211,7 +208,17 @@ pub struct LoadRequest<'a> {
 /// Request payload for slot-scoped command branches.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SlotRequest {
-    pub slot: PolicySlot,
+    pub target: PolicyTarget,
+}
+
+/// Management-owned target for policy lifecycle operations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PolicyTarget {
+    Forward,
+    EndpointRx,
+    EndpointTx,
+    Rendezvous,
+    Route,
 }
 
 /// Management requests carried by the request/reply management session.
@@ -257,7 +264,7 @@ pub struct PolicyStats {
 /// Payload carried by the `LoadBegin` message.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LoadBegin {
-    pub slot: PolicySlot,
+    pub target: PolicyTarget,
     pub code_len: u32,
     pub fuel_max: u16,
     pub mem_len: u16,
@@ -512,7 +519,7 @@ impl WireEncode for LoadBegin {
         if out.len() < 13 {
             return Err(CodecError::Truncated);
         }
-        out[0] = slot_id(self.slot) as u8;
+        out[0] = target_id(self.target) as u8;
         out[1..5].copy_from_slice(&self.code_len.to_be_bytes());
         out[5..7].copy_from_slice(&self.fuel_max.to_be_bytes());
         out[7..9].copy_from_slice(&self.mem_len.to_be_bytes());
@@ -527,13 +534,13 @@ impl WirePayload for LoadBegin {
     fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
         let input = input.as_bytes();
         require_exact_len(input.len(), 13, "trailing bytes after LoadBegin")?;
-        let slot = decode_slot(input[0])?;
+        let target = decode_target(input[0])?;
         let code_len = u32::from_be_bytes([input[1], input[2], input[3], input[4]]);
         let fuel_max = u16::from_be_bytes([input[5], input[6]]);
         let mem_len = u16::from_be_bytes([input[7], input[8]]);
         let hash = u32::from_be_bytes([input[9], input[10], input[11], input[12]]);
         Ok(LoadBegin {
-            slot,
+            target,
             code_len,
             fuel_max,
             mem_len,
@@ -594,7 +601,7 @@ impl WireEncode for SlotRequest {
         if out.is_empty() {
             return Err(CodecError::Truncated);
         }
-        out[0] = slot_id(self.slot) as u8;
+        out[0] = target_id(self.target) as u8;
         Ok(1)
     }
 }
@@ -606,29 +613,29 @@ impl WirePayload for SlotRequest {
         let input = input.as_bytes();
         require_exact_len(input.len(), 1, "trailing bytes after SlotRequest")?;
         Ok(SlotRequest {
-            slot: decode_slot(input[0])?,
+            target: decode_target(input[0])?,
         })
     }
 }
 
-pub(crate) fn slot_id(slot: PolicySlot) -> u32 {
-    match slot {
-        PolicySlot::Forward => 0,
-        PolicySlot::EndpointRx => 1,
-        PolicySlot::EndpointTx => 2,
-        PolicySlot::Rendezvous => 3,
-        PolicySlot::Route => 4,
+pub(crate) fn target_id(target: PolicyTarget) -> u32 {
+    match target {
+        PolicyTarget::Forward => 0,
+        PolicyTarget::EndpointRx => 1,
+        PolicyTarget::EndpointTx => 2,
+        PolicyTarget::Rendezvous => 3,
+        PolicyTarget::Route => 4,
     }
 }
 
-pub(crate) fn decode_slot(slot: u8) -> Result<PolicySlot, CodecError> {
-    match slot {
-        0 => Ok(PolicySlot::Forward),
-        1 => Ok(PolicySlot::EndpointRx),
-        2 => Ok(PolicySlot::EndpointTx),
-        3 => Ok(PolicySlot::Rendezvous),
-        4 => Ok(PolicySlot::Route),
-        _ => Err(CodecError::Invalid("unknown management slot")),
+pub(crate) fn decode_target(target: u8) -> Result<PolicyTarget, CodecError> {
+    match target {
+        0 => Ok(PolicyTarget::Forward),
+        1 => Ok(PolicyTarget::EndpointRx),
+        2 => Ok(PolicyTarget::EndpointTx),
+        3 => Ok(PolicyTarget::Rendezvous),
+        4 => Ok(PolicyTarget::Route),
+        _ => Err(CodecError::Invalid("unknown management target")),
     }
 }
 

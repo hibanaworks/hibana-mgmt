@@ -9,6 +9,7 @@ It exports:
 - `observe_stream::attach_controller(...)` / `attach_cluster(...)`
 - management request / reply payload owners
 
-The crate depends on the sibling `hibana` and `hibana-epf` checkouts through
-explicit local path dependencies. Coordinated development runs against the
-current worktrees with no separate git-rev lane and no repo-local patch shim.
+The crate's default manifest lane depends on immutable `hibana` and
+`hibana-epf` GitHub revs. Coordinated local-worktree validation belongs to the
+dedicated `hibana-cross-repo` workspace smoke runner, which applies explicit CLI
+patch overlays for the sibling checkouts.

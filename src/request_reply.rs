@@ -1,23 +1,17 @@
 use hibana::{
-    g::advanced::{RoleProgram, project},
     g::{self},
     substrate::{
-        AttachError, RendezvousId, SessionId, SessionKit, Transport,
+        AttachError, SessionKit, Transport,
         binding::NoBinding,
         cap::{ControlResourceKind, GenericCapToken},
+        ids::{RendezvousId, SessionId},
+        program::{RoleProgram, project},
         runtime::{Clock, LabelUniverse},
     },
 };
 
 use super::{
-    control_kinds::{
-        LoadBeginKind, LoadCommitKind, MgmtRouteActivateKind, MgmtRouteCommandFamilyKind,
-        MgmtRouteCommandTailKind, MgmtRouteLoadAndActivateKind, MgmtRouteLoadFamilyKind,
-        MgmtRouteLoadKind, MgmtRouteReplyActivatedKind, MgmtRouteReplyErrorKind,
-        MgmtRouteReplyLoadedKind, MgmtRouteReplyRevertedKind, MgmtRouteReplyStatsKind,
-        MgmtRouteReplySuccessFamilyKind, MgmtRouteReplySuccessFinalKind,
-        MgmtRouteReplySuccessTailKind, MgmtRouteRevertKind, MgmtRouteStatsKind,
-    },
+    control_kinds::{LoadBeginKind, LoadCommitKind, MgmtRouteKind},
     payload::{
         LoadBegin, LoadChunk, LoadReport, MgmtError, SlotRequest, StatsReply, TransitionReport,
     },
@@ -67,7 +61,8 @@ const LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY: u8 = 125;
 const LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL: u8 = 126;
 const LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL: u8 = 127;
 
-type RouteMsg<const LABEL: u8, Kind> = g::Msg<LABEL, GenericCapToken<Kind>, Kind>;
+type RouteMsg<const LABEL: u8, const ARM: u8> =
+    g::Msg<LABEL, GenericCapToken<MgmtRouteKind<LABEL, ARM>>, MgmtRouteKind<LABEL, ARM>>;
 type LoadBeginControlMsg = g::Msg<
     { <LoadBeginKind as ControlResourceKind>::LABEL },
     GenericCapToken<LoadBeginKind>,
@@ -139,7 +134,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         let arm_head = g::send::<
             g::Role<ROLE_CONTROLLER>,
             g::Role<ROLE_CONTROLLER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD }, MgmtRouteLoadKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD }, 0>,
             0,
         >()
         .policy::<REQUEST_LOAD_POLICY_ID>();
@@ -159,7 +154,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         let arm_head = g::send::<
             g::Role<ROLE_CONTROLLER>,
             g::Role<ROLE_CONTROLLER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD_AND_ACTIVATE }, MgmtRouteLoadAndActivateKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD_AND_ACTIVATE }, 1>,
             0,
         >()
         .policy::<REQUEST_LOAD_POLICY_ID>();
@@ -179,7 +174,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         let family_head = g::send::<
             g::Role<ROLE_CONTROLLER>,
             g::Role<ROLE_CONTROLLER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD_FAMILY }, MgmtRouteLoadFamilyKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD_FAMILY }, 0>,
             0,
         >()
         .policy::<REQUEST_ROOT_POLICY_ID>();
@@ -191,7 +186,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         let arm_head = g::send::<
             g::Role<ROLE_CONTROLLER>,
             g::Role<ROLE_CONTROLLER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_ACTIVATE }, MgmtRouteActivateKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_ACTIVATE }, 0>,
             0,
         >()
         .policy::<REQUEST_COMMAND_POLICY_ID>();
@@ -208,7 +203,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         let arm_head = g::send::<
             g::Role<ROLE_CONTROLLER>,
             g::Role<ROLE_CONTROLLER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REVERT }, MgmtRouteRevertKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REVERT }, 0>,
             0,
         >()
         .policy::<REQUEST_COMMAND_TAIL_POLICY_ID>();
@@ -225,7 +220,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         let arm_head = g::send::<
             g::Role<ROLE_CONTROLLER>,
             g::Role<ROLE_CONTROLLER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_STATS }, MgmtRouteStatsKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_STATS }, 1>,
             0,
         >()
         .policy::<REQUEST_COMMAND_TAIL_POLICY_ID>();
@@ -242,7 +237,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         let tail_head = g::send::<
             g::Role<ROLE_CONTROLLER>,
             g::Role<ROLE_CONTROLLER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_COMMAND_TAIL }, MgmtRouteCommandTailKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_COMMAND_TAIL }, 1>,
             0,
         >()
         .policy::<REQUEST_COMMAND_POLICY_ID>();
@@ -254,7 +249,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         let family_head = g::send::<
             g::Role<ROLE_CONTROLLER>,
             g::Role<ROLE_CONTROLLER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_COMMAND_FAMILY }, MgmtRouteCommandFamilyKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_COMMAND_FAMILY }, 1>,
             0,
         >()
         .policy::<REQUEST_ROOT_POLICY_ID>();
@@ -268,7 +263,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         let arm_head = g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_ERROR }, MgmtRouteReplyErrorKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_ERROR }, 0>,
             0,
         >()
         .policy::<REPLY_ROOT_POLICY_ID>();
@@ -285,7 +280,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         let arm_head = g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_LOADED }, MgmtRouteReplyLoadedKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_LOADED }, 0>,
             0,
         >()
         .policy::<REPLY_SUCCESS_POLICY_ID>();
@@ -302,7 +297,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         let arm_head = g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_ACTIVATED }, MgmtRouteReplyActivatedKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_ACTIVATED }, 0>,
             0,
         >()
         .policy::<REPLY_SUCCESS_TAIL_POLICY_ID>();
@@ -319,7 +314,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         let arm_head = g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_REVERTED }, MgmtRouteReplyRevertedKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_REVERTED }, 0>,
             0,
         >()
         .policy::<REPLY_SUCCESS_FINAL_POLICY_ID>();
@@ -336,7 +331,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         let arm_head = g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_STATS }, MgmtRouteReplyStatsKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_STATS }, 1>,
             0,
         >()
         .policy::<REPLY_SUCCESS_FINAL_POLICY_ID>();
@@ -353,7 +348,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         let family_head = g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL }, MgmtRouteReplySuccessFinalKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL }, 1>,
             0,
         >()
         .policy::<REPLY_SUCCESS_TAIL_POLICY_ID>();
@@ -365,7 +360,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         let family_head = g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL }, MgmtRouteReplySuccessTailKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL }, 1>,
             0,
         >()
         .policy::<REPLY_SUCCESS_POLICY_ID>();
@@ -377,7 +372,7 @@ fn controller_program() -> RoleProgram<ROLE_CONTROLLER> {
         let family_head = g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY }, MgmtRouteReplySuccessFamilyKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY }, 1>,
             0,
         >()
         .policy::<REPLY_ROOT_POLICY_ID>();
@@ -451,7 +446,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         let arm_head = g::send::<
             g::Role<ROLE_CONTROLLER>,
             g::Role<ROLE_CONTROLLER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD }, MgmtRouteLoadKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD }, 0>,
             0,
         >()
         .policy::<REQUEST_LOAD_POLICY_ID>();
@@ -471,7 +466,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         let arm_head = g::send::<
             g::Role<ROLE_CONTROLLER>,
             g::Role<ROLE_CONTROLLER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD_AND_ACTIVATE }, MgmtRouteLoadAndActivateKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD_AND_ACTIVATE }, 1>,
             0,
         >()
         .policy::<REQUEST_LOAD_POLICY_ID>();
@@ -491,7 +486,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         let family_head = g::send::<
             g::Role<ROLE_CONTROLLER>,
             g::Role<ROLE_CONTROLLER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD_FAMILY }, MgmtRouteLoadFamilyKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_LOAD_FAMILY }, 0>,
             0,
         >()
         .policy::<REQUEST_ROOT_POLICY_ID>();
@@ -503,7 +498,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         let arm_head = g::send::<
             g::Role<ROLE_CONTROLLER>,
             g::Role<ROLE_CONTROLLER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_ACTIVATE }, MgmtRouteActivateKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_ACTIVATE }, 0>,
             0,
         >()
         .policy::<REQUEST_COMMAND_POLICY_ID>();
@@ -520,7 +515,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         let arm_head = g::send::<
             g::Role<ROLE_CONTROLLER>,
             g::Role<ROLE_CONTROLLER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REVERT }, MgmtRouteRevertKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REVERT }, 0>,
             0,
         >()
         .policy::<REQUEST_COMMAND_TAIL_POLICY_ID>();
@@ -537,7 +532,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         let arm_head = g::send::<
             g::Role<ROLE_CONTROLLER>,
             g::Role<ROLE_CONTROLLER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_STATS }, MgmtRouteStatsKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_STATS }, 1>,
             0,
         >()
         .policy::<REQUEST_COMMAND_TAIL_POLICY_ID>();
@@ -554,7 +549,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         let tail_head = g::send::<
             g::Role<ROLE_CONTROLLER>,
             g::Role<ROLE_CONTROLLER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_COMMAND_TAIL }, MgmtRouteCommandTailKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_COMMAND_TAIL }, 1>,
             0,
         >()
         .policy::<REQUEST_COMMAND_POLICY_ID>();
@@ -566,7 +561,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         let family_head = g::send::<
             g::Role<ROLE_CONTROLLER>,
             g::Role<ROLE_CONTROLLER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_COMMAND_FAMILY }, MgmtRouteCommandFamilyKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_COMMAND_FAMILY }, 1>,
             0,
         >()
         .policy::<REQUEST_ROOT_POLICY_ID>();
@@ -580,7 +575,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         let arm_head = g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_ERROR }, MgmtRouteReplyErrorKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_ERROR }, 0>,
             0,
         >()
         .policy::<REPLY_ROOT_POLICY_ID>();
@@ -597,7 +592,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         let arm_head = g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_LOADED }, MgmtRouteReplyLoadedKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_LOADED }, 0>,
             0,
         >()
         .policy::<REPLY_SUCCESS_POLICY_ID>();
@@ -614,7 +609,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         let arm_head = g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_ACTIVATED }, MgmtRouteReplyActivatedKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_ACTIVATED }, 0>,
             0,
         >()
         .policy::<REPLY_SUCCESS_TAIL_POLICY_ID>();
@@ -631,7 +626,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         let arm_head = g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_REVERTED }, MgmtRouteReplyRevertedKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_REVERTED }, 0>,
             0,
         >()
         .policy::<REPLY_SUCCESS_FINAL_POLICY_ID>();
@@ -648,7 +643,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         let arm_head = g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_STATS }, MgmtRouteReplyStatsKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_STATS }, 1>,
             0,
         >()
         .policy::<REPLY_SUCCESS_FINAL_POLICY_ID>();
@@ -665,7 +660,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         let family_head = g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL }, MgmtRouteReplySuccessFinalKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL }, 1>,
             0,
         >()
         .policy::<REPLY_SUCCESS_TAIL_POLICY_ID>();
@@ -677,7 +672,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         let family_head = g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL }, MgmtRouteReplySuccessTailKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL }, 1>,
             0,
         >()
         .policy::<REPLY_SUCCESS_POLICY_ID>();
@@ -689,7 +684,7 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
         let family_head = g::send::<
             g::Role<ROLE_CLUSTER>,
             g::Role<ROLE_CLUSTER>,
-            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY }, MgmtRouteReplySuccessFamilyKind>,
+            RouteMsg<{ LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY }, 1>,
             0,
         >()
         .policy::<REPLY_ROOT_POLICY_ID>();
@@ -703,7 +698,6 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
     projected
 }
 
-#[allow(private_bounds)]
 pub fn attach_controller<'r, 'cfg, T, U, C, const MAX_RV: usize>(
     kit: &'r SessionKit<'cfg, T, U, C, MAX_RV>,
     rv: RendezvousId,
@@ -719,7 +713,6 @@ where
     kit.enter(rv, sid, &program, NoBinding)
 }
 
-#[allow(private_bounds)]
 pub fn attach_cluster<'r, 'cfg, T, U, C, const MAX_RV: usize>(
     kit: &'r SessionKit<'cfg, T, U, C, MAX_RV>,
     rv: RendezvousId,

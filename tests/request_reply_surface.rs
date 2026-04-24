@@ -3,8 +3,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use hibana::substrate::policy::PolicySlot;
-use hibana_mgmt::{LoadRequest, Request};
+use hibana_mgmt::{LoadRequest, PolicyTarget, Request};
 
 fn read(path: &str) -> String {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -25,7 +24,12 @@ fn request_reply_surface_uses_attach_helpers_not_raw_program_exports() {
     for forbidden in [
         "pub const PROGRAM",
         "pub const PREFIX",
-        "g::advanced::steps",
+        "#[allow(private_bounds)]",
+        "#[expect(private_bounds",
+        "g::advanced",
+        "hibana::g::advanced",
+        "substrate::{\n        AttachError, RendezvousId",
+        "substrate::{AttachError, RendezvousId",
         "const APP: g::Program<_>",
         "static APP: g::Program<_>",
         "const PROGRAM: g::Program<_>",
@@ -46,6 +50,14 @@ fn request_reply_surface_uses_attach_helpers_not_raw_program_exports() {
             "management kind owner must live in hibana-mgmt: {required}"
         );
     }
+    assert!(
+        kinds.contains("pub struct MgmtRouteKind<const LABEL: u8, const ARM: u8>;"),
+        "management route decisions must use the single const-generic route kind owner"
+    );
+    assert!(
+        !kinds.contains("pub type MgmtRoute"),
+        "management route kind surface must not grow per-label aliases"
+    );
     for required in [
         "GenericCapToken<LoadBeginKind>",
         "GenericCapToken<LoadCommitKind>",
@@ -64,13 +76,49 @@ fn request_reply_surface_uses_attach_helpers_not_raw_program_exports() {
 }
 
 #[test]
+fn request_reply_uses_final_form_substrate_paths() {
+    let src = read("src/request_reply.rs");
+    for forbidden in [
+        "#[allow(private_bounds)]",
+        "#[expect(private_bounds",
+        "g::advanced",
+        "hibana::g::advanced",
+        "hibana::substrate::RendezvousId",
+        "hibana::substrate::SessionId",
+        "substrate::{\n        AttachError, RendezvousId",
+        "substrate::{AttachError, RendezvousId",
+    ] {
+        assert!(
+            !src.contains(forbidden),
+            "request_reply must not keep old substrate/g path residue: {forbidden}"
+        );
+    }
+}
+
+#[test]
 fn request_reply_payload_surface_stays_available() {
     let _request = Request::LoadAndActivate(LoadRequest {
-        slot: PolicySlot::Rendezvous,
+        target: PolicyTarget::Rendezvous,
         code: &[0x30, 0x03, 0x00, 0x01],
         fuel_max: 64,
         mem_len: 128,
     });
+
+    let payload = read("src/payload.rs");
+    assert!(payload.contains("pub enum PolicyTarget"));
+    assert!(payload.contains("pub target: PolicyTarget"));
+    for forbidden in [
+        "PolicySlot",
+        "policy::advanced",
+        "pub slot:",
+        "decode_slot",
+        "slot_id",
+    ] {
+        assert!(
+            !payload.contains(forbidden),
+            "management payload surface must own policy targets without advanced slot leakage: {forbidden}"
+        );
+    }
 }
 
 #[test]
@@ -118,16 +166,30 @@ fn policy_lifecycle_vocabulary_uses_revert_not_restore() {
     assert!(payload.contains("Reverted(TransitionReport)"));
 }
 
+fn manifest_rev<'a>(cargo_toml: &'a str, crate_name: &str) -> &'a str {
+    let needle =
+        format!("{crate_name} = {{ git = \"https://github.com/hibanaworks/{crate_name}\", rev = \"");
+    let start = cargo_toml
+        .find(&needle)
+        .unwrap_or_else(|| panic!("hibana-mgmt must depend on an immutable {crate_name} GitHub rev"))
+        + needle.len();
+    let rev = cargo_toml[start..]
+        .split('"')
+        .next()
+        .unwrap_or_else(|| panic!("{crate_name} dependency must include a rev"));
+    assert_eq!(rev.len(), 40);
+    assert!(rev.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    rev
+}
+
 #[test]
-fn dependency_surface_uses_pinned_git_dependencies() {
+fn dependency_surface_uses_immutable_git_revs() {
     let cargo_toml = read("Cargo.toml");
     let cargo_config = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".cargo/config.toml");
 
-    assert!(cargo_toml.contains("git = \"https://github.com/hibanaworks/hibana\""));
-    assert!(cargo_toml.contains("git = \"https://github.com/hibanaworks/hibana-epf\""));
-    assert!(cargo_toml.contains("rev = \"dbad661f3bcb9be17f23ca7c1764a9649f0487b7\""));
-    assert!(cargo_toml.contains("rev = \"5cffa1e5726e4c41d2927859d1a8e37e76233b5d\""));
-    assert!(!cargo_toml.contains("path = \"../hibana\""));
-    assert!(!cargo_toml.contains("path = \"../hibana-epf\""));
+    let _ = manifest_rev(&cargo_toml, "hibana");
+    let _ = manifest_rev(&cargo_toml, "hibana-epf");
+    assert!(!cargo_toml.contains("hibana = { path = \"../hibana\""));
+    assert!(!cargo_toml.contains("hibana-epf = { path = \"../hibana-epf\""));
     assert!(!cargo_config.exists());
 }
