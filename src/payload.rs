@@ -6,6 +6,22 @@ use hibana::{
 use hibana_epf::{host::HostError, loader::LoaderError, verifier::VerifyError};
 
 pub(crate) const LOAD_CHUNK_MAX: usize = 1024;
+
+#[inline]
+fn require_exact_len(
+    input_len: usize,
+    expected: usize,
+    trailing: &'static str,
+) -> Result<(), CodecError> {
+    if input_len < expected {
+        return Err(CodecError::Truncated);
+    }
+    if input_len != expected {
+        return Err(CodecError::Invalid(trailing));
+    }
+    Ok(())
+}
+
 /// Errors that can occur during the management session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MgmtError {
@@ -124,32 +140,26 @@ impl WirePayload for MgmtError {
         if input.is_empty() {
             return Err(CodecError::Truncated);
         }
+        let expected = match input[0] {
+            0 => 2,
+            1 => 1,
+            2 | 3 => 9,
+            4..=12 => 1,
+            _ => return Err(CodecError::Invalid("unknown management error tag")),
+        };
+        require_exact_len(input.len(), expected, "trailing bytes after MgmtError")?;
+
         match input[0] {
-            0 => {
-                if input.len() < 2 {
-                    return Err(CodecError::Truncated);
-                }
-                Ok(MgmtError::InvalidSlot(input[1]))
-            }
+            0 => Ok(MgmtError::InvalidSlot(input[1])),
             1 => Ok(MgmtError::InvalidTransition),
-            2 => {
-                if input.len() < 9 {
-                    return Err(CodecError::Truncated);
-                }
-                Ok(MgmtError::ChunkOutOfOrder {
-                    expected: u32::from_be_bytes([input[1], input[2], input[3], input[4]]),
-                    got: u32::from_be_bytes([input[5], input[6], input[7], input[8]]),
-                })
-            }
-            3 => {
-                if input.len() < 9 {
-                    return Err(CodecError::Truncated);
-                }
-                Ok(MgmtError::ChunkTooLarge {
-                    remaining: u32::from_be_bytes([input[1], input[2], input[3], input[4]]),
-                    provided: u32::from_be_bytes([input[5], input[6], input[7], input[8]]),
-                })
-            }
+            2 => Ok(MgmtError::ChunkOutOfOrder {
+                expected: u32::from_be_bytes([input[1], input[2], input[3], input[4]]),
+                got: u32::from_be_bytes([input[5], input[6], input[7], input[8]]),
+            }),
+            3 => Ok(MgmtError::ChunkTooLarge {
+                remaining: u32::from_be_bytes([input[1], input[2], input[3], input[4]]),
+                provided: u32::from_be_bytes([input[5], input[6], input[7], input[8]]),
+            }),
             4 => Ok(MgmtError::LoaderNotFinalised),
             5 => Ok(MgmtError::NoStagedImage),
             6 => Ok(MgmtError::NoActiveImage),
@@ -309,9 +319,7 @@ impl WirePayload for SubscribeReq {
 
     fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
         let input = input.as_bytes();
-        if input.len() < 2 {
-            return Err(CodecError::Truncated);
-        }
+        require_exact_len(input.len(), 2, "trailing bytes after SubscribeReq")?;
         let flags = u16::from_be_bytes([input[0], input[1]]);
         Ok(SubscribeReq { flags })
     }
@@ -339,9 +347,7 @@ impl WirePayload for StatsResp {
 
     fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
         let input = input.as_bytes();
-        if input.len() < 16 {
-            return Err(CodecError::Truncated);
-        }
+        require_exact_len(input.len(), 16, "trailing bytes after StatsResp")?;
         Ok(StatsResp {
             traps: u32::from_be_bytes([input[0], input[1], input[2], input[3]]),
             aborts: u32::from_be_bytes([input[4], input[5], input[6], input[7]]),
@@ -380,9 +386,7 @@ impl WirePayload for PolicyStats {
 
     fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
         let input = input.as_bytes();
-        if input.len() < 38 {
-            return Err(CodecError::Truncated);
-        }
+        require_exact_len(input.len(), 38, "trailing bytes after PolicyStats")?;
         let last_commit = u32::from_be_bytes([input[28], input[29], input[30], input[31]]);
         let last_revert = u32::from_be_bytes([input[33], input[34], input[35], input[36]]);
         Ok(PolicyStats {
@@ -427,9 +431,7 @@ impl WirePayload for TransitionReport {
 
     fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
         let input = input.as_bytes();
-        if input.len() < 42 {
-            return Err(CodecError::Truncated);
-        }
+        require_exact_len(input.len(), 42, "trailing bytes after TransitionReport")?;
         Ok(TransitionReport {
             version: u32::from_be_bytes([input[0], input[1], input[2], input[3]]),
             policy_stats: PolicyStats::decode_payload(Payload::new(&input[4..42]))?,
@@ -456,9 +458,7 @@ impl WirePayload for LoadReport {
 
     fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
         let input = input.as_bytes();
-        if input.len() < 4 {
-            return Err(CodecError::Truncated);
-        }
+        require_exact_len(input.len(), 4, "trailing bytes after LoadReport")?;
         Ok(LoadReport {
             staged_version: u32::from_be_bytes([input[0], input[1], input[2], input[3]]),
         })
@@ -486,9 +486,7 @@ impl WirePayload for StatsReply {
 
     fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
         let input = input.as_bytes();
-        if input.len() < 21 {
-            return Err(CodecError::Truncated);
-        }
+        require_exact_len(input.len(), 21, "trailing bytes after StatsReply")?;
         let stats = StatsResp::decode_payload(Payload::new(&input[..16]))?;
         let staged_version = if input[16] == 0 {
             None
@@ -527,9 +525,7 @@ impl WirePayload for LoadBegin {
 
     fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
         let input = input.as_bytes();
-        if input.len() < 13 {
-            return Err(CodecError::Truncated);
-        }
+        require_exact_len(input.len(), 13, "trailing bytes after LoadBegin")?;
         let slot = decode_slot(input[0])?;
         let code_len = u32::from_be_bytes([input[1], input[2], input[3], input[4]]);
         let fuel_max = u16::from_be_bytes([input[5], input[6]]);
@@ -580,12 +576,7 @@ impl WirePayload for LoadChunk<'static> {
         if len_usize > LOAD_CHUNK_MAX {
             return Err(CodecError::Invalid("chunk length exceeds LOAD_CHUNK_MAX"));
         }
-        if input.len() < 6 + len_usize {
-            return Err(CodecError::Truncated);
-        }
-        if input.len() != 6 + len_usize {
-            return Err(CodecError::Invalid("trailing bytes after LoadChunk"));
-        }
+        require_exact_len(input.len(), 6 + len_usize, "trailing bytes after LoadChunk")?;
         Ok(LoadChunk {
             offset,
             bytes: &input[6..6 + len_usize],
@@ -612,9 +603,7 @@ impl WirePayload for SlotRequest {
 
     fn decode_payload<'a>(input: Payload<'a>) -> Result<Self::Decoded<'a>, CodecError> {
         let input = input.as_bytes();
-        if input.is_empty() {
-            return Err(CodecError::Truncated);
-        }
+        require_exact_len(input.len(), 1, "trailing bytes after SlotRequest")?;
         Ok(SlotRequest {
             slot: decode_slot(input[0])?,
         })
@@ -667,6 +656,117 @@ mod tests {
         assert!(
             <LoadChunk<'static> as WirePayload>::decode_payload(Payload::new(&encoded)).is_err(),
             "LoadChunk decode must be canonical and reject trailing bytes"
+        );
+    }
+
+    #[test]
+    fn fixed_management_payload_decoders_accept_exact_lengths() {
+        let mgmt_error = [1];
+        assert_eq!(
+            MgmtError::decode_payload(Payload::new(&mgmt_error)).expect("decode MgmtError"),
+            MgmtError::InvalidTransition
+        );
+
+        let invalid_slot = [0, 4];
+        assert_eq!(
+            MgmtError::decode_payload(Payload::new(&invalid_slot)).expect("decode InvalidSlot"),
+            MgmtError::InvalidSlot(4)
+        );
+
+        let subscribe = [0, 1];
+        assert_eq!(
+            SubscribeReq::decode_payload(Payload::new(&subscribe)).expect("decode SubscribeReq"),
+            SubscribeReq { flags: 1 }
+        );
+
+        let stats_resp = [0u8; 16];
+        assert!(StatsResp::decode_payload(Payload::new(&stats_resp)).is_ok());
+
+        let policy_stats = [0u8; 38];
+        assert!(PolicyStats::decode_payload(Payload::new(&policy_stats)).is_ok());
+
+        let transition_report = [0u8; 42];
+        assert!(TransitionReport::decode_payload(Payload::new(&transition_report)).is_ok());
+
+        let load_report = [0u8; 4];
+        assert!(LoadReport::decode_payload(Payload::new(&load_report)).is_ok());
+
+        let stats_reply = [0u8; 21];
+        assert!(StatsReply::decode_payload(Payload::new(&stats_reply)).is_ok());
+
+        let load_begin = [0u8; 13];
+        assert!(LoadBegin::decode_payload(Payload::new(&load_begin)).is_ok());
+
+        let slot_request = [0];
+        assert!(SlotRequest::decode_payload(Payload::new(&slot_request)).is_ok());
+    }
+
+    #[test]
+    fn fixed_management_payload_decoders_reject_trailing_bytes() {
+        let mgmt_error = [1, 0xEE];
+        assert!(
+            MgmtError::decode_payload(Payload::new(&mgmt_error)).is_err(),
+            "single-byte MgmtError must reject trailing bytes"
+        );
+
+        let invalid_slot = [0, 4, 0xEE];
+        assert!(
+            MgmtError::decode_payload(Payload::new(&invalid_slot)).is_err(),
+            "InvalidSlot MgmtError must reject trailing bytes"
+        );
+
+        let chunk_error = [2, 0, 0, 0, 1, 0, 0, 0, 2, 0xEE];
+        assert!(
+            MgmtError::decode_payload(Payload::new(&chunk_error)).is_err(),
+            "wide MgmtError must reject trailing bytes"
+        );
+
+        let subscribe = [0, 1, 0xEE];
+        assert!(
+            SubscribeReq::decode_payload(Payload::new(&subscribe)).is_err(),
+            "SubscribeReq must reject trailing bytes"
+        );
+
+        let stats_resp = [0u8; 17];
+        assert!(
+            StatsResp::decode_payload(Payload::new(&stats_resp)).is_err(),
+            "StatsResp must reject trailing bytes"
+        );
+
+        let policy_stats = [0u8; 39];
+        assert!(
+            PolicyStats::decode_payload(Payload::new(&policy_stats)).is_err(),
+            "PolicyStats must reject trailing bytes"
+        );
+
+        let transition_report = [0u8; 43];
+        assert!(
+            TransitionReport::decode_payload(Payload::new(&transition_report)).is_err(),
+            "TransitionReport must reject trailing bytes"
+        );
+
+        let load_report = [0u8; 5];
+        assert!(
+            LoadReport::decode_payload(Payload::new(&load_report)).is_err(),
+            "LoadReport must reject trailing bytes"
+        );
+
+        let stats_reply = [0u8; 22];
+        assert!(
+            StatsReply::decode_payload(Payload::new(&stats_reply)).is_err(),
+            "StatsReply must reject trailing bytes"
+        );
+
+        let load_begin = [0u8; 14];
+        assert!(
+            LoadBegin::decode_payload(Payload::new(&load_begin)).is_err(),
+            "LoadBegin must reject trailing bytes"
+        );
+
+        let slot_request = [0, 0xEE];
+        assert!(
+            SlotRequest::decode_payload(Payload::new(&slot_request)).is_err(),
+            "SlotRequest must reject trailing bytes"
         );
     }
 }

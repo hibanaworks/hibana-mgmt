@@ -127,13 +127,18 @@ impl WirePayload for TapBatch {
         if input.len() < expected_len {
             return Err(CodecError::Truncated);
         }
+        if input.len() != expected_len {
+            return Err(CodecError::Invalid("trailing bytes after TapBatch"));
+        }
 
         let mut batch = TapBatch::empty();
         batch.set_lost_events(lost_events);
 
         let mut offset = TAP_BATCH_HEADER_LEN;
         for _ in 0..count {
-            let event = TapEvent::decode_payload(Payload::new(&input[offset..]))?;
+            let event = TapEvent::decode_payload(Payload::new(
+                &input[offset..offset + TAP_EVENT_WIRE_LEN],
+            ))?;
             batch.push(event);
             offset += TAP_EVENT_WIRE_LEN;
         }
@@ -246,6 +251,36 @@ where
 {
     let program = controller_program();
     kit.enter(rv, sid, &program, NoBinding)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tap_batch_decode_is_canonical() {
+        let mut batch = TapBatch::empty();
+        assert!(batch.push(TapEvent::zero()));
+
+        let mut encoded = [0u8; TAP_BATCH_HEADER_LEN + TAP_EVENT_WIRE_LEN];
+        let len = batch.encode_into(&mut encoded).expect("encode tap batch");
+        let decoded = TapBatch::decode_payload(Payload::new(&encoded[..len]))
+            .expect("decode exact tap batch");
+
+        assert_eq!(decoded.len(), 1);
+    }
+
+    #[test]
+    fn tap_batch_decode_rejects_trailing_bytes() {
+        let batch = TapBatch::empty();
+        let mut encoded = [0u8; TAP_BATCH_HEADER_LEN + 1];
+        let len = batch.encode_into(&mut encoded).expect("encode tap batch");
+
+        assert!(
+            TapBatch::decode_payload(Payload::new(&encoded[..len + 1])).is_err(),
+            "TapBatch decode must reject trailing bytes"
+        );
+    }
 }
 
 #[allow(private_bounds)]
