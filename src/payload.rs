@@ -641,3 +641,32 @@ pub(crate) fn decode_slot(slot: u8) -> Result<PolicySlot, CodecError> {
         _ => Err(CodecError::Invalid("unknown management slot")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_chunk_decode_is_borrowed_not_fixed_buffer_copy() {
+        let mut encoded = [0u8; 16];
+        let chunk = LoadChunk::new(7, &[1, 2, 3, 4]);
+        let len = chunk.encode_into(&mut encoded).expect("encode load chunk");
+        let decoded =
+            <LoadChunk<'static> as WirePayload>::decode_payload(Payload::new(&encoded[..len]))
+                .expect("decode load chunk");
+
+        assert_eq!(decoded.offset, 7);
+        assert_eq!(decoded.len(), 4);
+        assert_eq!(decoded.bytes(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn load_chunk_decode_rejects_trailing_bytes() {
+        let encoded = [0, 0, 0, 7, 0, 4, 1, 2, 3, 4, 0xEE];
+
+        assert!(
+            <LoadChunk<'static> as WirePayload>::decode_payload(Payload::new(&encoded)).is_err(),
+            "LoadChunk decode must be canonical and reject trailing bytes"
+        );
+    }
+}

@@ -3,11 +3,8 @@
 use std::fs;
 use std::path::PathBuf;
 
-use hibana::substrate::{
-    policy::PolicySlot,
-    wire::{Payload, WireEncode, WirePayload},
-};
-use hibana_mgmt::{LoadChunk, LoadRequest, Request};
+use hibana::substrate::policy::PolicySlot;
+use hibana_mgmt::{LoadRequest, Request};
 
 fn read(path: &str) -> String {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -77,18 +74,7 @@ fn request_reply_payload_surface_stays_available() {
 }
 
 #[test]
-fn load_chunk_decode_is_borrowed_not_fixed_buffer_copy() {
-    let mut encoded = [0u8; 16];
-    let chunk = LoadChunk::new(7, &[1, 2, 3, 4]);
-    let len = chunk.encode_into(&mut encoded).expect("encode load chunk");
-    let decoded =
-        <LoadChunk<'static> as WirePayload>::decode_payload(Payload::new(&encoded[..len]))
-            .expect("decode load chunk");
-
-    assert_eq!(decoded.offset, 7);
-    assert_eq!(decoded.len(), 4);
-    assert_eq!(decoded.bytes(), &[1, 2, 3, 4]);
-
+fn load_chunk_decode_surface_stays_borrowed_not_fixed_buffer_copy() {
     let payload = read("src/payload.rs");
     assert!(
         !payload.contains("pub bytes: [u8; LOAD_CHUNK_MAX]"),
@@ -101,15 +87,6 @@ fn load_chunk_decode_is_borrowed_not_fixed_buffer_copy() {
     assert!(
         payload.contains("type Decoded<'a> = LoadChunk<'a>"),
         "LoadChunk wire decode must return a borrowed chunk view"
-    );
-}
-
-#[test]
-fn load_chunk_decode_rejects_trailing_bytes() {
-    let encoded = [0, 0, 0, 7, 0, 4, 1, 2, 3, 4, 0xEE];
-    assert!(
-        <LoadChunk<'static> as WirePayload>::decode_payload(Payload::new(&encoded)).is_err(),
-        "LoadChunk decode must be canonical and reject trailing bytes"
     );
 }
 
