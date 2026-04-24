@@ -1,11 +1,12 @@
 use hibana::{
-    g::advanced::{RoleProgram, project},
     g::{self},
     substrate::{
-        AttachError, RendezvousId, SessionId, SessionKit, Transport,
+        AttachError, SessionKit, Transport,
         binding::NoBinding,
         cap::GenericCapToken,
         cap::advanced::{LoopBreakKind, LoopContinueKind},
+        ids::{RendezvousId, SessionId},
+        program::{RoleProgram, project},
         runtime::{Clock, LabelUniverse},
         tap::TapEvent,
         wire::{CodecError, Payload, WireEncode, WirePayload},
@@ -237,7 +238,6 @@ fn cluster_program() -> RoleProgram<ROLE_CLUSTER> {
     projected
 }
 
-#[allow(private_bounds)]
 pub fn attach_controller<'r, 'cfg, T, U, C, const MAX_RV: usize>(
     kit: &'r SessionKit<'cfg, T, U, C, MAX_RV>,
     rv: RendezvousId,
@@ -283,7 +283,6 @@ mod tests {
     }
 }
 
-#[allow(private_bounds)]
 pub fn attach_cluster<'r, 'cfg, T, U, C, const MAX_RV: usize>(
     kit: &'r SessionKit<'cfg, T, U, C, MAX_RV>,
     rv: RendezvousId,

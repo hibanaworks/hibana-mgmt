@@ -7,6 +7,6 @@ pub mod request_reply;
 
 pub use payload::{
     LoadBegin, LoadChunk, LoadReport, LoadRequest, MgmtError, Reply, Request, SlotRequest,
-    StatsResp, SubscribeReq, TransitionReport,
+    PolicyTarget, StatsResp, SubscribeReq, TransitionReport,
 };
 pub use request_reply::{ROLE_CLUSTER, ROLE_CONTROLLER};

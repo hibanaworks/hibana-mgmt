@@ -25,7 +25,12 @@ fn observe_stream_surface_uses_attach_helpers_not_raw_program_exports() {
     for forbidden in [
         "pub const PROGRAM",
         "pub const PREFIX",
-        "g::advanced::steps",
+        "#[allow(private_bounds)]",
+        "#[expect(private_bounds",
+        "g::advanced",
+        "hibana::g::advanced",
+        "substrate::{\n        AttachError, RendezvousId",
+        "substrate::{AttachError, RendezvousId",
         "const APP: g::Program<_>",
         "static APP: g::Program<_>",
         "const PROGRAM: g::Program<_>",
@@ -50,4 +55,24 @@ fn observe_stream_surface_uses_attach_helpers_not_raw_program_exports() {
 fn observe_stream_payload_surface_stays_available() {
     let _subscribe = SubscribeReq::default();
     let _tap = TapEvent::default();
+}
+
+#[test]
+fn observe_stream_uses_final_form_substrate_paths() {
+    let src = read("src/observe_stream.rs");
+    for forbidden in [
+        "#[allow(private_bounds)]",
+        "#[expect(private_bounds",
+        "g::advanced",
+        "hibana::g::advanced",
+        "hibana::substrate::RendezvousId",
+        "hibana::substrate::SessionId",
+        "substrate::{\n        AttachError, RendezvousId",
+        "substrate::{AttachError, RendezvousId",
+    ] {
+        assert!(
+            !src.contains(forbidden),
+            "observe_stream must not keep old substrate/g path residue: {forbidden}"
+        );
+    }
 }

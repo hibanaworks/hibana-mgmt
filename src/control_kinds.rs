@@ -1,30 +1,14 @@
 use hibana::substrate::{
-    Lane, SessionId,
     cap::advanced::{
         CAP_HANDLE_LEN, CapError, ControlOp, ControlPath, ControlScopeKind, RouteDecisionKind,
         ScopeId,
     },
     cap::{CapShot, ControlResourceKind, ResourceKind},
+    ids::{Lane, SessionId},
 };
 
 const LABEL_MGMT_LOAD_BEGIN: u8 = 110;
 const LABEL_MGMT_LOAD_COMMIT: u8 = 111;
-const LABEL_MGMT_ROUTE_LOAD: u8 = 112;
-const LABEL_MGMT_ROUTE_ACTIVATE: u8 = 113;
-const LABEL_MGMT_ROUTE_REVERT: u8 = 114;
-const LABEL_MGMT_ROUTE_STATS: u8 = 115;
-const LABEL_MGMT_ROUTE_LOAD_FAMILY: u8 = 116;
-const LABEL_MGMT_ROUTE_LOAD_AND_ACTIVATE: u8 = 117;
-const LABEL_MGMT_ROUTE_REPLY_ERROR: u8 = 118;
-const LABEL_MGMT_ROUTE_REPLY_LOADED: u8 = 119;
-const LABEL_MGMT_ROUTE_REPLY_ACTIVATED: u8 = 120;
-const LABEL_MGMT_ROUTE_REPLY_REVERTED: u8 = 121;
-const LABEL_MGMT_ROUTE_REPLY_STATS: u8 = 122;
-const LABEL_MGMT_ROUTE_COMMAND_FAMILY: u8 = 123;
-const LABEL_MGMT_ROUTE_COMMAND_TAIL: u8 = 124;
-const LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY: u8 = 125;
-const LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL: u8 = 126;
-const LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL: u8 = 127;
 const TAP_MGMT_LOAD_BEGIN: u16 = 0x0300 + LABEL_MGMT_LOAD_BEGIN as u16;
 const TAP_MGMT_LOAD_COMMIT: u16 = 0x0300 + LABEL_MGMT_LOAD_COMMIT as u16;
 
@@ -151,20 +135,3 @@ impl ControlResourceKind for LoadCommitKind {
         (session.raw(), lane.raw() as u16)
     }
 }
-
-pub type MgmtRouteLoadKind = MgmtRouteKind<LABEL_MGMT_ROUTE_LOAD, 0>;
-pub type MgmtRouteActivateKind = MgmtRouteKind<LABEL_MGMT_ROUTE_ACTIVATE, 0>;
-pub type MgmtRouteRevertKind = MgmtRouteKind<LABEL_MGMT_ROUTE_REVERT, 0>;
-pub type MgmtRouteStatsKind = MgmtRouteKind<LABEL_MGMT_ROUTE_STATS, 1>;
-pub type MgmtRouteLoadFamilyKind = MgmtRouteKind<LABEL_MGMT_ROUTE_LOAD_FAMILY, 0>;
-pub type MgmtRouteLoadAndActivateKind = MgmtRouteKind<LABEL_MGMT_ROUTE_LOAD_AND_ACTIVATE, 1>;
-pub type MgmtRouteReplyErrorKind = MgmtRouteKind<LABEL_MGMT_ROUTE_REPLY_ERROR, 0>;
-pub type MgmtRouteReplyLoadedKind = MgmtRouteKind<LABEL_MGMT_ROUTE_REPLY_LOADED, 0>;
-pub type MgmtRouteReplyActivatedKind = MgmtRouteKind<LABEL_MGMT_ROUTE_REPLY_ACTIVATED, 0>;
-pub type MgmtRouteReplyRevertedKind = MgmtRouteKind<LABEL_MGMT_ROUTE_REPLY_REVERTED, 0>;
-pub type MgmtRouteReplyStatsKind = MgmtRouteKind<LABEL_MGMT_ROUTE_REPLY_STATS, 1>;
-pub type MgmtRouteCommandFamilyKind = MgmtRouteKind<LABEL_MGMT_ROUTE_COMMAND_FAMILY, 1>;
-pub type MgmtRouteCommandTailKind = MgmtRouteKind<LABEL_MGMT_ROUTE_COMMAND_TAIL, 1>;
-pub type MgmtRouteReplySuccessFamilyKind = MgmtRouteKind<LABEL_MGMT_ROUTE_REPLY_SUCCESS_FAMILY, 1>;
-pub type MgmtRouteReplySuccessTailKind = MgmtRouteKind<LABEL_MGMT_ROUTE_REPLY_SUCCESS_TAIL, 1>;
-pub type MgmtRouteReplySuccessFinalKind = MgmtRouteKind<LABEL_MGMT_ROUTE_REPLY_SUCCESS_FINAL, 1>;
