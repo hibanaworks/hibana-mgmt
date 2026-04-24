@@ -105,6 +105,15 @@ fn load_chunk_decode_is_borrowed_not_fixed_buffer_copy() {
 }
 
 #[test]
+fn load_chunk_decode_rejects_trailing_bytes() {
+    let encoded = [0, 0, 0, 7, 0, 4, 1, 2, 3, 4, 0xEE];
+    assert!(
+        <LoadChunk<'static> as WirePayload>::decode_payload(Payload::new(&encoded)).is_err(),
+        "LoadChunk decode must be canonical and reject trailing bytes"
+    );
+}
+
+#[test]
 fn policy_lifecycle_vocabulary_uses_revert_not_restore() {
     for path in [
         "src/payload.rs",
@@ -139,8 +148,8 @@ fn dependency_surface_uses_pinned_git_dependencies() {
 
     assert!(cargo_toml.contains("git = \"https://github.com/hibanaworks/hibana\""));
     assert!(cargo_toml.contains("git = \"https://github.com/hibanaworks/hibana-epf\""));
-    assert!(cargo_toml.contains("rev = \"5b0a522a85694718743b19caa1cadb470cf3a22d\""));
-    assert!(cargo_toml.contains("rev = \"e0a977bf969baa9aa63d6879e9878a4af80e796c\""));
+    assert!(cargo_toml.contains("rev = \"4d5e89199be35de2b77e73bd8f550375c63f2e3c\""));
+    assert!(cargo_toml.contains("rev = \"a98036395c2793f30bbc43d1b1f4761fc6c84457\""));
     assert!(!cargo_toml.contains("path = \"../hibana\""));
     assert!(!cargo_toml.contains("path = \"../hibana-epf\""));
     assert!(!cargo_config.exists());

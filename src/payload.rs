@@ -583,6 +583,9 @@ impl WirePayload for LoadChunk<'static> {
         if input.len() < 6 + len_usize {
             return Err(CodecError::Truncated);
         }
+        if input.len() != 6 + len_usize {
+            return Err(CodecError::Invalid("trailing bytes after LoadChunk"));
+        }
         Ok(LoadChunk {
             offset,
             bytes: &input[6..6 + len_usize],
