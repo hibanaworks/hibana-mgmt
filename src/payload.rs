@@ -296,9 +296,7 @@ impl<'a> LoadChunk<'a> {
 
 /// Subscribe request for streaming observe.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SubscribeReq {
-    pub flags: u16,
-}
+pub struct SubscribeReq;
 
 impl WireEncode for SubscribeReq {
     fn encoded_len(&self) -> Option<usize> {
@@ -309,7 +307,7 @@ impl WireEncode for SubscribeReq {
         if out.len() < 2 {
             return Err(CodecError::Truncated);
         }
-        out[0..2].copy_from_slice(&self.flags.to_be_bytes());
+        out[0..2].copy_from_slice(&0u16.to_be_bytes());
         Ok(2)
     }
 }
@@ -321,7 +319,10 @@ impl WirePayload for SubscribeReq {
         let input = input.as_bytes();
         require_exact_len(input.len(), 2, "trailing bytes after SubscribeReq")?;
         let flags = u16::from_be_bytes([input[0], input[1]]);
-        Ok(SubscribeReq { flags })
+        if flags != 0 {
+            return Err(CodecError::Invalid("unsupported SubscribeReq flags"));
+        }
+        Ok(SubscribeReq)
     }
 }
 
@@ -673,10 +674,10 @@ mod tests {
             MgmtError::InvalidSlot(4)
         );
 
-        let subscribe = [0, 1];
+        let subscribe = [0, 0];
         assert_eq!(
             SubscribeReq::decode_payload(Payload::new(&subscribe)).expect("decode SubscribeReq"),
-            SubscribeReq { flags: 1 }
+            SubscribeReq
         );
 
         let stats_resp = [0u8; 16];
@@ -767,6 +768,15 @@ mod tests {
         assert!(
             SlotRequest::decode_payload(Payload::new(&slot_request)).is_err(),
             "SlotRequest must reject trailing bytes"
+        );
+    }
+
+    #[test]
+    fn subscribe_req_rejects_reserved_flags() {
+        let subscribe = [0, 1];
+        assert!(
+            SubscribeReq::decode_payload(Payload::new(&subscribe)).is_err(),
+            "SubscribeReq has no runtime flag authority and must reject reserved flags"
         );
     }
 }
