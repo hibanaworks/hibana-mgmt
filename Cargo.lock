@@ -5,12 +5,12 @@ version = 4
 [[package]]
 name = "hibana"
 version = "0.1.0"
-source = "git+https://github.com/hibanaworks/hibana?rev=9b95d66eaed007629a72f01b5f58666f1dd70786#9b95d66eaed007629a72f01b5f58666f1dd70786"
+source = "git+https://github.com/hibanaworks/hibana?rev=53fe08fe5169fd5bb2f3012ef83e1ac8a221b081#53fe08fe5169fd5bb2f3012ef83e1ac8a221b081"
 
 [[package]]
 name = "hibana-epf"
 version = "0.1.0"
-source = "git+https://github.com/hibanaworks/hibana-epf?rev=069b30ea961ecb1cae91b190685119d852f55dbc#069b30ea961ecb1cae91b190685119d852f55dbc"
+source = "git+https://github.com/hibanaworks/hibana-epf?rev=2f4fd88c64c7acf8fc31a5f27a0cbdb6872df1fd#2f4fd88c64c7acf8fc31a5f27a0cbdb6872df1fd"
 dependencies = [
  "hibana",
 ]

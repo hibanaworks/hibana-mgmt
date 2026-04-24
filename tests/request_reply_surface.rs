@@ -125,8 +125,8 @@ fn dependency_surface_uses_pinned_git_dependencies() {
 
     assert!(cargo_toml.contains("git = \"https://github.com/hibanaworks/hibana\""));
     assert!(cargo_toml.contains("git = \"https://github.com/hibanaworks/hibana-epf\""));
-    assert!(cargo_toml.contains("rev = \"9b95d66eaed007629a72f01b5f58666f1dd70786\""));
-    assert!(cargo_toml.contains("rev = \"069b30ea961ecb1cae91b190685119d852f55dbc\""));
+    assert!(cargo_toml.contains("rev = \"53fe08fe5169fd5bb2f3012ef83e1ac8a221b081\""));
+    assert!(cargo_toml.contains("rev = \"2f4fd88c64c7acf8fc31a5f27a0cbdb6872df1fd\""));
     assert!(!cargo_toml.contains("path = \"../hibana\""));
     assert!(!cargo_toml.contains("path = \"../hibana-epf\""));
     assert!(!cargo_config.exists());
