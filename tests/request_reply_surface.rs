@@ -133,14 +133,15 @@ fn policy_lifecycle_vocabulary_uses_revert_not_restore() {
 }
 
 #[test]
-fn dependency_surface_uses_local_sibling_path_dependencies() {
+fn dependency_surface_uses_pinned_git_dependencies() {
     let cargo_toml = read("Cargo.toml");
     let cargo_config = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".cargo/config.toml");
 
-    assert!(cargo_toml.contains("hibana = { path = \"../hibana\""));
-    assert!(cargo_toml.contains("hibana-epf = { path = \"../hibana-epf\""));
-    assert!(!cargo_toml.contains("git = \"https://github.com/hibanaworks/hibana\""));
-    assert!(!cargo_toml.contains("git = \"https://github.com/hibanaworks/hibana-epf\""));
-    assert!(!cargo_toml.contains("rev = \""));
+    assert!(cargo_toml.contains("git = \"https://github.com/hibanaworks/hibana\""));
+    assert!(cargo_toml.contains("git = \"https://github.com/hibanaworks/hibana-epf\""));
+    assert!(cargo_toml.contains("rev = \"a06b0a74076964c6374d00b3d11991e7d4ae1329\""));
+    assert!(cargo_toml.contains("rev = \"63fd300ce41801f96afb1a713f4305f5c7015261\""));
+    assert!(!cargo_toml.contains("path = \"../hibana\""));
+    assert!(!cargo_toml.contains("path = \"../hibana-epf\""));
     assert!(!cargo_config.exists());
 }
